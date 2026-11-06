@@ -81,6 +81,49 @@ it("upgrades a populated mixed database, retaining shifts and archived history",
       ).rows,
     ).toHaveLength(2);
     expect((await db.query("select * from departments")).rows).toHaveLength(4);
+    await db.exec(
+      readFileSync(
+        "supabase/migrations/007_employee_weekly_availability.sql",
+        "utf8",
+      ),
+    );
+    await db.query("update profiles set role='admin' where id=$1", [admin]);
+    await db.query("select set_config('app.uid',$1,false)", [admin]);
+    await db.exec("set role authenticated");
+    await db.query(
+      "select department_schedule_action('2026-11-01','publish',$1)",
+      [a],
+    );
+    const originalPublication = (
+      await db.query<{ created_at: Date }>(
+        "select created_at from audit_logs where entity='schedule' and after_data->>'action'='publish'",
+      )
+    ).rows[0];
+    await db.exec("reset role");
+    await db.exec(
+      readFileSync(
+        "supabase/migrations/008_schedule_notifications.sql",
+        "utf8",
+      ),
+    );
+    const notices = (
+      await db.query<{
+        created_at: Date;
+        details: { total_count: number };
+        read: boolean;
+      }>("select * from notifications where kind='schedule_published'")
+    ).rows;
+    expect(notices).toHaveLength(1);
+    expect(notices[0].created_at).toEqual(originalPublication.created_at);
+    expect(notices[0].details.total_count).toBe(1);
+    expect(notices[0].read).toBe(true);
+    expect(
+      (
+        await db.query(
+          "select id,department_id,site_id,role_id,starts_at,ends_at from shift_assignments order by id",
+        )
+      ).rows,
+    ).toEqual(before);
   } finally {
     await db.close();
   }

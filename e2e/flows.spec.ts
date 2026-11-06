@@ -201,4 +201,32 @@ test("organization saves weekly availability atomically and enforces it through 
   expect(
     saved.data.shift_assignments.filter((a) => a.employee_id === employee.id),
   ).toHaveLength(1);
+  expect(
+    (
+      await page.request.post("/api/change", {
+        headers,
+        data: {
+          action: "publish",
+          week: "2026-11-08",
+          department_id: membership.department_id,
+        },
+      })
+    ).ok(),
+  ).toBe(true);
+  await page.reload();
+  await page
+    .locator(".topbar")
+    .getByRole("button", { name: /^התראות/ })
+    .click();
+  const notice = page
+    .getByRole("article", { name: "סידור פורסם", exact: true })
+    .filter({ hasText: "08.11.2026" });
+  await expect(notice).toHaveCount(1);
+  await notice
+    .getByRole("button", { name: "פירוט: סידור פורסם", exact: true })
+    .click();
+  await expect(notice.locator(".notice-details")).toContainText(
+    "1 משמרות בסידור",
+  );
+  await expect(notice.getByText("חדש", { exact: true })).toHaveCount(0);
 });

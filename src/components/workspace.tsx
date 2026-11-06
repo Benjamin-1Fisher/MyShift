@@ -2,6 +2,8 @@
 import Link from "next/link";
 import ShiftEditor from "./shift-editor";
 import WeeklyAvailabilityEditor from "./weekly-availability-editor";
+import ScheduleNotifications from "./schedule-notifications";
+import { scheduleNotices } from "@/lib/schedule-notifications";
 import {
   normalizeWeeklyAvailability,
   weeklyAvailabilitySchema,
@@ -404,6 +406,9 @@ export default function Workspace({
       : data.profiles.find((p) => p.id === userId),
     isAdmin = profile?.role === "admin",
     canEdit = !!profile && profile.role !== "employee";
+  const unreadNotices = scheduleNotices(data.notifications).filter(
+    (n) => !n.read,
+  ).length;
   const departments = data.departments.filter(
     (d) =>
       d.active !== false &&
@@ -729,7 +734,9 @@ export default function Workspace({
     await load();
     setNotice(
       entity.kind === "employee"
-        ? "העובד נשמר ומוכן לשיבוץ"
+        ? values.weekly_availability !== undefined && entity.initial?.id
+          ? "העובד והזמינות נשמרו. שיבוצים קיימים נשארו ללא שינוי ויופיעו לבדיקה אם נדרש."
+          : "העובד נשמר ומוכן לשיבוץ"
         : "השינויים נשמרו בהצלחה",
     );
   };
@@ -915,10 +922,9 @@ export default function Workspace({
                 <Icon size={19} />
                 {label}
                 {key === "ai" && <span className="tiny-tag">בקרוב</span>}
-                {key === "notifications" &&
-                  data.notifications.some((n) => !n.read) && (
-                    <i className="dot" />
-                  )}
+                {key === "notifications" && unreadNotices > 0 && (
+                  <i className="dot" />
+                )}
               </button>
             ))}
           <details className="nav-extra">
@@ -940,10 +946,9 @@ export default function Workspace({
                   <Icon size={19} />
                   {label}
                   {key === "ai" && <span className="tiny-tag">בקרוב</span>}
-                  {key === "notifications" &&
-                    data.notifications.some((n) => !n.read) && (
-                      <i className="dot" />
-                    )}
+                  {key === "notifications" && unreadNotices > 0 && (
+                    <i className="dot" />
+                  )}
                 </button>
               ))}
           </details>
@@ -1010,10 +1015,17 @@ export default function Workspace({
                   : "סביבת עבודה חדשה"}
             </span>
             <button
-              aria-label="התראות"
+              aria-label={
+                unreadNotices ? `התראות, ${unreadNotices} חדשות` : "התראות"
+              }
               onClick={() => setPage("notifications")}
             >
               <Bell size={19} />
+              {unreadNotices > 0 && (
+                <span className="notification-count" aria-hidden="true">
+                  {unreadNotices}
+                </span>
+              )}
             </button>
           </div>
         </header>
@@ -1060,7 +1072,9 @@ export default function Workspace({
         <div className="content">
           <div className="page-heading">
             <div>
-              <span className="eyebrow">ניהול חכם. צוות מחובר.</span>
+              {page !== "notifications" && (
+                <span className="eyebrow">ניהול חכם. צוות מחובר.</span>
+              )}
               <h1>
                 {page === "dashboard"
                   ? `יום עבודה מסודר מתחיל כאן`
@@ -1069,7 +1083,9 @@ export default function Workspace({
               <p className="muted">
                 {page === "dashboard"
                   ? "כל מה שצריך לדעת על הצוות והסידור השבועי, במבט אחד."
-                  : "מרחב אחד לניהול מדויק, פשוט ומשותף."}
+                  : page === "notifications"
+                    ? "סידורים שפורסמו ושינויים שחשוב לדעת."
+                    : "מרחב אחד לניהול מדויק, פשוט ומשותף."}
               </p>
             </div>
             <div className="row">
@@ -1093,7 +1109,7 @@ export default function Workspace({
                   יצירת סידור שבועי
                 </button>
               )}
-              {canEdit && (
+              {canEdit && page !== "notifications" && (
                 <button
                   className="primary"
                   disabled={busy || version?.status === "published"}
@@ -2409,37 +2425,23 @@ export default function Workspace({
             </section>
           )}
           {page === "notifications" && (
-            <section className="panel">
-              <h2>עדכונים לצוות</h2>
-              {data.notifications.map((n) => (
-                <div className="list-row" key={n.id}>
-                  <Bell size={18} />
-                  <div>
-                    <strong>{String(n.message)}</strong>
-                    <p>
-                      {new Date(String(n.created_at)).toLocaleString("he-IL", {
-                        timeZone: "Asia/Jerusalem",
-                      })}
-                    </p>
-                  </div>
-                  {!n.read && (
-                    <button
-                      onClick={() =>
-                        void run(async () => {
-                          await post("/api/admin", {
-                            kind: "notification",
-                            data: { id: n.id },
-                          });
-                        })
-                      }
-                    >
-                      סימון כנקרא
-                    </button>
-                  )}
-                </div>
-              ))}
-              {!data.notifications.length && <Empty text="אין התראות חדשות" />}
-            </section>
+            <ScheduleNotifications
+              data={data}
+              onRead={(id) =>
+                run(async () => {
+                  await post("/api/admin", {
+                    kind: "notification",
+                    data: { id },
+                  });
+                })
+              }
+              onOpenSchedule={(department, targetWeek) => {
+                selectDepartment(department);
+                setWeek(targetWeek);
+                setView("week");
+                setPage("schedule");
+              }}
+            />
           )}
           {page === "history" && (
             <section className="panel">

@@ -474,3 +474,104 @@ test("archived legacy week offers fresh creation and keeps both schedules recove
   );
   expect(after).toEqual(all);
 });
+
+test("notifications show only published schedules and clear dated change alerts with keyboard details", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto("/demo");
+  const bell = () =>
+    page.locator(".topbar").getByRole("button", { name: /^התראות/ });
+  await bell().click();
+  await expect(page.locator(".schedule-notice")).toHaveCount(0);
+  await expect(
+    page.getByText("פרסומים ושינויים בסידורים שפורסמו", { exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "סידורי עבודה", exact: true }).click();
+  await page.getByRole("button", { name: "פרסום סידור", exact: true }).click();
+  await bell().click();
+  const published = page.getByRole("article", {
+    name: "סידור פורסם",
+    exact: true,
+  });
+  await expect(published).toHaveCount(1);
+  await expect(published.locator("time")).toBeVisible();
+  expect(
+    Number.isFinite(
+      Date.parse((await published.locator("time").getAttribute("datetime"))!),
+    ),
+  ).toBe(true);
+  await published
+    .getByRole("button", { name: "פירוט: סידור פורסם", exact: true })
+    .click();
+  await expect(
+    published.getByRole("button", {
+      name: "סגירת פירוט: סידור פורסם",
+      exact: true,
+    }),
+  ).toHaveAttribute("aria-expanded", "true");
+  await expect(published.locator(".notice-details")).toContainText(
+    "7 משמרות בסידור",
+  );
+  await expect(published.getByText("חדש", { exact: true })).toHaveCount(0);
+  await published
+    .getByRole("button", { name: "לסידור השבוע", exact: true })
+    .click();
+  await expect(page.locator(".shift")).toHaveCount(7);
+  await page.getByRole("button", { name: "פתיחה לעריכה", exact: true }).click();
+  await page.locator(".shift select").first().selectOption("");
+  const noticesBeforePublish = await page.evaluate(
+    () =>
+      JSON.parse(
+        localStorage.getItem("myshift.demo.v1")!,
+      ).data.notifications.filter((n: { kind?: string }) => n.kind).length,
+  );
+  expect(noticesBeforePublish).toBe(2);
+  await page.getByRole("button", { name: "פרסום סידור", exact: true }).click();
+  await bell().click();
+  await expect(page.locator(".schedule-notice")).toHaveCount(3);
+  await expect(page.locator(".notice-warning")).toHaveCount(2);
+  const changed = page.getByRole("article", {
+    name: "פורסם שינוי בסידור",
+    exact: true,
+  });
+  const details = changed.getByRole("button", {
+    name: "פירוט: פורסם שינוי בסידור",
+    exact: true,
+  });
+  await details.focus();
+  await page.keyboard.press("Enter");
+  await expect(changed.locator(".notice-change-summary")).toContainText(
+    "עודכנו 1",
+  );
+  await expect(
+    changed.getByText("שינוי / חריגה", { exact: true }),
+  ).toBeVisible();
+  const warningColor = await changed.evaluate(
+    (el) => getComputedStyle(el).backgroundColor,
+  );
+  const publicationColor = await published.evaluate(
+    (el) => getComputedStyle(el).backgroundColor,
+  );
+  expect(warningColor).not.toBe(publicationColor);
+  await page.screenshot({
+    path: "work/schedule-notifications-desktop.png",
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: "work/schedule-notifications-mobile.png",
+    fullPage: true,
+  });
+  await page.reload();
+  await bell().click();
+  await expect(page.locator(".schedule-notice")).toHaveCount(3);
+  await expect(
+    page.getByText("ברוכים הבאים להדגמה", { exact: false }),
+  ).toHaveCount(0);
+});

@@ -2,6 +2,11 @@ import { z } from "zod";
 import { adminSchema } from "./admin-schema";
 import { isWeeklyAvailable } from "./weekly-availability";
 import {
+  publicationChanges,
+  scheduleSnapshot,
+  type PublicationSnapshot,
+} from "./schedule-notifications";
+import {
   addDays,
   availabilityWindows,
   duration,
@@ -34,6 +39,7 @@ type Store = {
   data: Data;
   pending: Pending[];
   departmentsUpgraded?: boolean;
+  publications?: Record<string, PublicationSnapshot>;
 };
 const rowSchema = z.object({ id: z.string() }).catchall(z.unknown());
 const dataSchema = z.object(
@@ -149,7 +155,87 @@ export function seedDemo(): Store {
       created_at: new Date().toISOString(),
     },
   ];
-  return upgradeDemo({ schema: 1, data, pending: [] });
+  return preparePublications(upgradeDemo({ schema: 1, data, pending: [] }));
+}
+
+function preparePublications(store: Store): Store {
+  store.publications ||= {};
+  for (const version of store.data.schedule_versions.filter(
+    (v) => v.status === "published",
+  )) {
+    if (store.publications[version.id]) continue;
+    const snapshot = scheduleSnapshot(store.data, version.id);
+    store.publications[version.id] = snapshot;
+    // Preserve real publication dates from the existing activity log. Welcome
+    // messages and draft edits are not converted into schedule notifications.
+    const audit = store.data.audit_logs.find(
+      (a) =>
+        a.action === "פרסום סידור מקומי" &&
+        (a.after_data as Row | undefined)?.id === version.id,
+    );
+    if (
+      audit &&
+      !store.data.notifications.some(
+        (n) => n.version_id === version.id && n.kind,
+      )
+    )
+      store.data.notifications.push({
+        id: uid(),
+        user_id: DEMO_ADMIN,
+        kind: "schedule_published",
+        message: "סידור פורסם",
+        version_id: version.id,
+        department_id: version.department_id,
+        week_start: version.week_start,
+        details: publicationChanges([], snapshot),
+        created_at: audit.created_at,
+        read: true,
+      });
+  }
+  return store;
+}
+
+function notifyPublication(
+  store: Store,
+  version: Row,
+  previousStatus: unknown,
+) {
+  if (previousStatus === version.status) return;
+  const snapshot = scheduleSnapshot(store.data, version.id);
+  const previous = store.publications?.[version.id];
+  const details: Record<string, unknown> = publicationChanges(
+    previous || [],
+    snapshot,
+  );
+  let kind: string;
+  if (version.status === "published") {
+    kind =
+      previous &&
+      Number(details.added) +
+        Number(details.removed) +
+        Number(details.updated) >
+        0
+        ? "schedule_changed"
+        : "schedule_published";
+    store.publications ||= {};
+    store.publications[version.id] = snapshot;
+  } else if (previousStatus === "published") {
+    kind = "schedule_withdrawn";
+    details.reason = version.status === "archived" ? "archived" : "reopened";
+  } else return;
+  store.data.notifications.unshift({
+    id: uid(),
+    user_id: DEMO_ADMIN,
+    kind,
+    message:
+      kind === "schedule_published" ? "סידור פורסם" : "שינוי בסידור שפורסם",
+    version_id: version.id,
+    department_id: version.department_id,
+    week_start: version.week_start,
+    details,
+    read: false,
+    created_at: new Date().toISOString(),
+  });
 }
 
 // Additive upgrade: keep the same storage key, employees, shifts, archives and history.
@@ -252,6 +338,7 @@ function read(): Store {
     );
     const before = JSON.stringify(store);
     upgradeDemo(store);
+    preparePublications(store);
     if (JSON.stringify(store) !== before) write(store);
     return store;
   } catch {
@@ -508,6 +595,7 @@ export async function demoCommand(
       active.status = "archived";
       active.archived_at = new Date().toISOString();
       active.revision = Number(active.revision) + 1;
+      notifyPublication(store, active, beforeActive.status);
       store.pending = store.pending.filter((p) => p.version !== active.id);
       audit(store, "שמירת הסידור הנוכחי לפני שחזור", beforeActive, active);
     }
@@ -517,6 +605,7 @@ export async function demoCommand(
     if (input.action === "restore")
       validate(data, data.shift_assignments, version);
     version.revision = Number(version.revision) + 1;
+    notifyPublication(store, version, before.status);
     store.pending = store.pending.filter((p) => p.version !== version.id);
     audit(
       store,
@@ -570,20 +659,14 @@ export async function demoCommand(
       result = version.id;
     } else {
       if (!version) throw new Error("יש ליצור סידור שבועי תחילה");
+      const previousStatus = version.status;
+      const nextStatus = input.action === "publish" ? "published" : "draft";
+      if (previousStatus === nextStatus) return version.id;
       if (input.action === "publish")
         validate(data, data.shift_assignments, version);
-      version.status = input.action === "publish" ? "published" : "draft";
+      version.status = nextStatus;
       version.revision = Number(version.revision) + 1;
-      data.notifications.unshift({
-        id: uid(),
-        message:
-          input.action === "publish"
-            ? "סידור ההדגמה פורסם מקומית. ניתן לצפות בו בתצוגת עובד בדפדפן הזה בלבד."
-            : "סידור ההדגמה נפתח לעריכה",
-        read: false,
-        created_at: new Date().toISOString(),
-        user_id: DEMO_ADMIN,
-      });
+      notifyPublication(store, version, previousStatus);
       audit(
         store,
         input.action === "publish" ? "פרסום סידור מקומי" : "פתיחת סידור לעריכה",

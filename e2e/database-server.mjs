@@ -142,12 +142,13 @@ createServer(async (req, res) => {
     const table = url.pathname.split("/").pop();
     if (!tables.has(table)) throw new Error("unknown table");
     const rows = (await db.query(`select * from ${table}`)).rows;
-    if (table === "schedule_versions")
+    if (table === "schedule_versions" || table === "notifications")
       for (const row of rows)
-        row.week_start =
-          row.week_start instanceof Date
-            ? row.week_start.toISOString().slice(0, 10)
-            : String(row.week_start).slice(0, 10);
+        if (row.week_start != null)
+          row.week_start =
+            row.week_start instanceof Date
+              ? row.week_start.toISOString().slice(0, 10)
+              : String(row.week_start).slice(0, 10);
     return rows;
   };
   const task = queue.then(execute);

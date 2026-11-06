@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { ZodError } from "zod";
 import { NextResponse } from "next/server";
 import { tables, type Data } from "./domain";
+import { scheduleNoticeKinds } from "./schedule-notifications";
 export async function db() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL,
     key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -33,12 +34,27 @@ export async function loadData(client: Awaited<ReturnType<typeof db>>) {
   const pairs = await Promise.all(
     tables.map(async (t) => {
       let q = client.from(t).select("*");
-      if (t === "audit_logs" || t === "notifications")
+      if (t === "notifications")
+        q = q
+          .in("kind", [...scheduleNoticeKinds])
+          .order("created_at", { ascending: false })
+          .limit(200);
+      else if (t === "audit_logs")
         q = q.order("created_at", { ascending: false }).limit(200);
       else if (t === "schedule_versions") q = q.order("id").limit(5000);
       else q = q.limit(5000);
-      const { data, error } = await q;
+      let { data, error } = await q;
+      if (t === "notifications" && error?.code === "42703") {
+        const legacy = await client
+          .from(t)
+          .select("*")
+          .order("created_at", { ascending: false })
+          .limit(200);
+        data = legacy.data;
+        error = legacy.error;
+      }
       if (error) throw new Error(error.message);
+      if (!data) throw new Error("לא ניתן לטעון את הנתונים");
       if (data.length >= 5000)
         throw new Error(
           "Result capacity reached; add scoped pagination before loading more records",
