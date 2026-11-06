@@ -14,17 +14,22 @@ export async function POST(req: Request) {
               : "save_employee",
             { data },
           )
-        : kind === "initialize"
-          ? await client.rpc("initialize_workspace", {
-              site_name: data.site_name,
-            })
-          : await client.rpc("manage_entity", { kind, data });
+        : kind === "absence"
+          ? await client.rpc("save_absence", { data })
+          : kind === "cancel_absence"
+            ? await client.rpc("cancel_absence", { aid: data.id })
+            : kind === "initialize"
+              ? await client.rpc("initialize_workspace", {
+                  site_name: data.site_name,
+                })
+              : await client.rpc("manage_entity", { kind, data });
     if (r.error)
       return NextResponse.json(
         {
           error:
-            r.error.code === "PGRST202" && kind === "employee"
-              ? "שמירת זמינות קבועה עדיין לא הופעלה במערכת הארגונית. השינוי לא נשמר; יש לפנות למנהל המערכת."
+            r.error.code === "PGRST202" &&
+            ["employee", "absence", "cancel_absence"].includes(kind)
+              ? "שמירת הנתונים החדשים עדיין לא הופעלה במערכת הארגונית. השינוי לא נשמר; יש לפנות למנהל המערכת."
               : r.error.message,
         },
         { status: 400 },

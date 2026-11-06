@@ -1,9 +1,15 @@
 import { z } from "zod";
 import { weeklyAvailabilitySchema } from "./weekly-availability";
+import { absenceSchema } from "./absences";
 const id = { id: z.uuid().optional() };
 const name = z.string().trim().min(1).max(100);
 const base = { ...id, name };
 export const adminSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("absence"), data: absenceSchema }),
+  z.object({
+    kind: z.literal("cancel_absence"),
+    data: z.object({ id: z.uuid() }),
+  }),
   z.object({
     kind: z.literal("initialize"),
     data: z.object({ site_name: name }),

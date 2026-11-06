@@ -575,3 +575,148 @@ test("notifications show only published schedules and clear dated change alerts 
     page.getByText("ברוכים הבאים להדגמה", { exact: false }),
   ).toHaveCount(0);
 });
+
+test("overview gives clear weekly actions and takes managers directly to the right department and open shifts", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto("/demo");
+  await page.getByRole("button", { name: "סקירה כללית", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "מצב השבוע", exact: true }),
+  ).toBeVisible();
+  await expect(page.locator(".overview-department")).toHaveCount(4);
+  await expect(page.locator(".ai-promo")).toHaveCount(0);
+  await expect(
+    page.getByRole("article", { name: "קבלה", exact: true }),
+  ).toContainText("יש להגדיר שעות");
+  await page.screenshot({ path: "work/overview-desktop.png", fullPage: true });
+  await page
+    .locator(".overview-metrics")
+    .getByRole("button", { name: /משמרות פנויות/ })
+    .click();
+  await expect(
+    page.getByRole("tab", { name: "סיירים", exact: true }),
+  ).toHaveAttribute("aria-selected", "true");
+  await expect(
+    page.getByText("מוצגות משמרות פנויות בלבד", { exact: false }),
+  ).toBeVisible();
+  await expect(page.locator(".shift")).toHaveCount(1);
+  await page
+    .getByRole("button", { name: "הצגת כל המשמרות", exact: true })
+    .click();
+  await expect(page.locator(".shift")).toHaveCount(14);
+  await page.getByRole("button", { name: "סקירה כללית", exact: true }).click();
+  await page.getByRole("button", { name: "שבוע הבא", exact: true }).click();
+  const first = page.getByRole("article", { name: "אחמ״שים", exact: true });
+  await expect(first).toContainText("טרם נוצר");
+  await expect(page.locator(".overview-ready")).toHaveCount(0);
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({ path: "work/overview-mobile.png", fullPage: true });
+  await first.getByRole("button", { name: "יצירת סידור", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "יצירת סידור חדש", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("tab", { name: "אחמ״שים", exact: true }),
+  ).toHaveAttribute("aria-selected", "true");
+});
+
+test("employee overview shows personal published shifts without manager totals or actions", async ({
+  page,
+}) => {
+  await page.goto("/demo");
+  await page.getByRole("button", { name: "פרסום סידור", exact: true }).click();
+  await page
+    .getByLabel("תצוגת הדגמה")
+    .selectOption({ label: "עובד · דניאל לוי" });
+  await page.getByRole("button", { name: "סקירה כללית", exact: true }).click();
+  await expect(page.locator(".overview-own-shift")).toHaveCount(3);
+  await expect(page.locator(".overview-departments")).toHaveCount(0);
+  await expect(page.locator(".overview-metrics")).toHaveCount(0);
+  await page.getByRole("button", { name: "שבוע הבא", exact: true }).click();
+  await expect(
+    page.getByText("לא פורסמו עבורך משמרות בשבוע הזה.", { exact: true }),
+  ).toBeVisible();
+});
+
+test("employee absence button handles sickness and vacation dates without changing recurring availability", async ({
+  page,
+}) => {
+  await page.goto("/demo");
+  await page.getByRole("button", { name: "עובדים", exact: true }).click();
+  const employee = page.getByRole("row").filter({ hasText: "דניאל לוי" });
+  await expect(page.getByText("טרם הוגשה זמינות", { exact: true })).toHaveCount(
+    0,
+  );
+  await employee.getByRole("button", { name: "עריכה", exact: true }).click();
+  const form = page.getByRole("dialog");
+  await form
+    .locator("summary")
+    .filter({ hasText: "זמינות קבועה למשמרות" })
+    .click();
+  await form.getByRole("button", { name: "בוקר בלבד", exact: true }).click();
+  await form.getByRole("button", { name: "שמירה", exact: true }).click();
+  await employee
+    .getByRole("button", { name: "חופשות והיעדרויות", exact: true })
+    .click();
+  await expect(
+    form.locator('input[type="time"], input[type="datetime-local"]'),
+  ).toHaveCount(0);
+  await expect(
+    form
+      .getByLabel("סוג ההיעדרות")
+      .getByRole("option", { name: "זמין", exact: true }),
+  ).toHaveCount(0);
+  await form.getByLabel("סוג ההיעדרות").selectOption("sick");
+  await form.getByLabel("מיום", { exact: true }).fill("2026-11-06");
+  await form.getByLabel("עד יום (כולל)", { exact: true }).fill("2026-11-07");
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await form.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(
+    true,
+  );
+  await page.screenshot({
+    path: "work/absence-form-mobile.png",
+    fullPage: true,
+  });
+  await form
+    .getByRole("button", { name: "שמירת היעדרות", exact: true })
+    .click();
+  await expect(form).toHaveCount(0);
+  const absence = page
+    .locator(".absence-record")
+    .filter({ hasText: "דניאל לוי" });
+  await expect(absence).toContainText("מחלה");
+  await expect(absence).toContainText("07.11.2026");
+  await expect(employee).toContainText("בוקר בלבד · כל השבוע");
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.reload();
+  await page.getByRole("button", { name: "עובדים", exact: true }).click();
+  await expect(absence).toContainText("מחלה");
+  await page.getByLabel("סינון היעדרויות").selectOption("absent");
+  await expect(page.locator(".employees-table tbody tr")).toHaveCount(1);
+  await absence
+    .getByRole("button", { name: "עריכת היעדרות", exact: true })
+    .click();
+  await form.getByLabel("סוג ההיעדרות").selectOption("vacation");
+  await form.getByLabel("עד יום (כולל)", { exact: true }).fill("2026-11-08");
+  await form
+    .getByRole("button", { name: "שמירת היעדרות", exact: true })
+    .click();
+  await expect(absence).toContainText("חופשה");
+  await expect(absence).toContainText("08.11.2026");
+  await absence
+    .getByRole("button", { name: "ביטול דיווח", exact: true })
+    .click();
+  await expect(absence).toHaveCount(0);
+  await page.getByLabel("סינון היעדרויות").selectOption("");
+  await expect(employee).toContainText("בוקר בלבד · כל השבוע");
+  await expect(
+    employee.getByText("היעדרות בשבוע הנבחר", { exact: true }),
+  ).toHaveCount(0);
+});

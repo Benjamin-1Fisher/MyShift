@@ -230,3 +230,94 @@ test("organization saves weekly availability atomically and enforces it through 
   );
   await expect(notice.getByText("חדש", { exact: true })).toHaveCount(0);
 });
+
+test("organization records and cancels sickness and the server enforces the blocked dates", async ({
+  page,
+}) => {
+  await page.goto("/app");
+  await page.getByLabel("דוא״ל").fill("admin@example.test");
+  await page.getByLabel("סיסמה").fill("test-password-only");
+  await page.getByRole("button", { name: "כניסה", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "עובדים", exact: true }),
+  ).toBeVisible();
+  const { data }: { data: Data } = await (
+    await page.request.get("/api/data")
+  ).json();
+  const employee = data.employees.find((e) => e.name === "עובד לילה בשישי")!;
+  const member = data.employee_departments.find(
+    (m) => m.employee_id === employee.id,
+  )!;
+  const headers = { Origin: "http://localhost:3002" };
+  expect(
+    (
+      await page.request.post("/api/admin", {
+        headers,
+        data: {
+          kind: "absence",
+          data: {
+            employee_id: employee.id,
+            absence_reason: "sick",
+            starts_on: "2026-11-20",
+            ends_on: "2026-11-20",
+          },
+        },
+      })
+    ).ok(),
+  ).toBe(true);
+  const absent: { data: Data } = await (
+    await page.request.get("/api/data")
+  ).json();
+  const report = absent.data.availability.find(
+    (a) => a.employee_id === employee.id && a.absence_reason === "sick",
+  )!;
+  expect(report.kind).toBe("leave");
+  const version = await (
+    await page.request.post("/api/change", {
+      headers,
+      data: {
+        action: "create",
+        week: "2026-11-15",
+        department_id: member.department_id,
+      },
+    })
+  ).json();
+  const operation = {
+    kind: "create",
+    employee_id: employee.id,
+    department_id: member.department_id,
+    role_id: member.role_id,
+    site_id: data.sites[0].id,
+    starts_at: "2026-11-20T21:00:00Z",
+    ends_at: "2026-11-21T05:00:00Z",
+  };
+  const blocked = await page.request.post("/api/change", {
+    headers,
+    data: { action: "preview", version, operations: [operation] },
+  });
+  expect(blocked.status()).toBe(400);
+  expect((await blocked.json()).error).toContain("אינו זמין");
+  expect(
+    (
+      await page.request.post("/api/admin", {
+        headers,
+        data: { kind: "cancel_absence", data: { id: report.id } },
+      })
+    ).ok(),
+  ).toBe(true);
+  expect(
+    (
+      await page.request.post("/api/change", {
+        headers,
+        data: { action: "preview", version, operations: [operation] },
+      })
+    ).ok(),
+  ).toBe(true);
+  const restored: { data: Data } = await (
+    await page.request.get("/api/data")
+  ).json();
+  expect(
+    restored.data.employees.find((e) => e.id === employee.id)
+      ?.weekly_availability,
+  ).toEqual(employee.weekly_availability);
+});

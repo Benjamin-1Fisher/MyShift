@@ -251,3 +251,106 @@ it("named custom night templates work while date-specific leave still blocks the
     rpc("preview_change", [version, JSON.stringify([operation])]),
   ).rejects.toThrow(/אינו זמין/);
 });
+
+it("saves inclusive sick days, blocks staffing and can cancel without changing the recurring pattern", async () => {
+  const employee = await rpc("save_employee_with_availability", [
+    JSON.stringify(
+      employeeData({ user_id: worker, weekly_availability: fridayNight }),
+    ),
+  ]);
+  const absence = await rpc("save_absence", [
+    JSON.stringify({
+      employee_id: employee,
+      absence_reason: "sick",
+      starts_on: "2026-11-06",
+      ends_on: "2026-11-06",
+    }),
+  ]);
+  expect(
+    await rows("select kind,absence_reason from availability where id=$1", [
+      absence,
+    ]),
+  ).toEqual([{ kind: "leave", absence_reason: "sick" }]);
+  const version = await rpc("department_schedule_action", [
+    "2026-11-01",
+    "create",
+    department,
+  ]);
+  await expect(
+    rpc("preview_change", [version, JSON.stringify([shift(employee)])]),
+  ).rejects.toThrow(/אינו זמין/);
+  await asUser(worker);
+  await rpc("cancel_absence", [absence]);
+  await asUser(admin);
+  expect(
+    await rows("select * from availability where id=$1", [absence]),
+  ).toHaveLength(0);
+  expect(
+    await rows("select weekly_availability from employees where id=$1", [
+      employee,
+    ]),
+  ).toEqual([{ weekly_availability: fridayNight }]);
+  await rpc("preview_change", [version, JSON.stringify([shift(employee)])]);
+  expect(
+    await rows(
+      "select * from audit_logs where entity='absence' and entity_id=$1",
+      [absence],
+    ),
+  ).toHaveLength(2);
+});
+
+it("protects other employees and positive availability records from the absence actions", async () => {
+  const own = await rpc("save_employee", [
+    JSON.stringify(employeeData({ user_id: worker })),
+  ]);
+  const other = await rpc("save_employee", [
+    JSON.stringify(employeeData({ name: "עובד אחר" })),
+  ]);
+  const absence = await rpc("save_absence", [
+    JSON.stringify({
+      employee_id: other,
+      absence_reason: "vacation",
+      starts_on: "2026-11-06",
+      ends_on: "2026-11-07",
+    }),
+  ]);
+  await asUser(worker);
+  await expect(rpc("cancel_absence", [absence])).rejects.toThrow(/הרשאה/);
+  await expect(
+    rpc("save_absence", [
+      JSON.stringify({
+        employee_id: other,
+        absence_reason: "sick",
+        starts_on: "2026-11-06",
+        ends_on: "2026-11-06",
+      }),
+    ]),
+  ).rejects.toThrow(/הרשאה/);
+  await rpc("save_absence", [
+    JSON.stringify({
+      employee_id: own,
+      absence_reason: "personal",
+      starts_on: "2026-11-06",
+      ends_on: "2026-11-06",
+    }),
+  ]);
+  await asUser(admin);
+  await rpc("manage_entity", [
+    "availability",
+    JSON.stringify({
+      employee_id: own,
+      kind: "available",
+      starts_at: "2026-11-13T00:00:00Z",
+      ends_at: "2026-11-14T00:00:00Z",
+    }),
+  ]);
+  const positive = (
+    await rows<{ id: string }>(
+      "select id from availability where kind='available'",
+    )
+  )[0].id;
+  await expect(rpc("cancel_absence", [positive])).rejects.toThrow(/לא נמצא/);
+  expect(
+    await rows("select * from availability where id=$1", [positive]),
+  ).toHaveLength(1);
+});

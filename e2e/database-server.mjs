@@ -46,6 +46,8 @@ const functions = {
   manage_entity: ["kind", "data"],
   save_employee: ["data"],
   save_employee_with_availability: ["data"],
+  save_absence: ["data"],
+  cancel_absence: ["aid"],
   initialize_workspace: ["site_name"],
   schedule_action: ["week", "action"],
   department_schedule_action: ["week", "action", "department"],

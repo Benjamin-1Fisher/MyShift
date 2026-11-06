@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { adminSchema } from "./admin-schema";
 import { isWeeklyAvailable } from "./weekly-availability";
+import { absenceInterval, isAbsence } from "./absences";
 import {
   publicationChanges,
   scheduleSnapshot,
@@ -463,6 +464,38 @@ export async function demoCommand(
   if (url === "/api/admin") {
     const { kind, data: value } = adminSchema.parse(body);
     switch (kind) {
+      case "absence": {
+        if (!data.employees.some((e) => e.id === value.employee_id))
+          throw new Error("העובד לא נמצא");
+        if (
+          value.id &&
+          !data.availability.some(
+            (a) =>
+              a.id === value.id &&
+              a.employee_id === value.employee_id &&
+              isAbsence(a),
+          )
+        )
+          throw new Error("דיווח ההיעדרות לא נמצא");
+        upsert(data.availability, {
+          id: value.id || uid(),
+          employee_id: value.employee_id,
+          kind: "leave",
+          absence_reason: value.absence_reason,
+          ...absenceInterval(value.starts_on, value.ends_on),
+        });
+        break;
+      }
+      case "cancel_absence": {
+        const previous = data.availability.find(
+          (a) => a.id === value.id && isAbsence(a),
+        );
+        if (!previous) throw new Error("דיווח ההיעדרות לא נמצא או כבר בוטל");
+        audit(store, "ביטול היעדרות", previous, null);
+        data.availability = data.availability.filter((a) => a.id !== value.id);
+        write(store);
+        return { ok: true };
+      }
       case "employee": {
         const { department_id, role_id, ...employee } = value;
         const id = upsert(data.employees, employee);

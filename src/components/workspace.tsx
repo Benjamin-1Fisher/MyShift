@@ -3,6 +3,16 @@ import Link from "next/link";
 import ShiftEditor from "./shift-editor";
 import WeeklyAvailabilityEditor from "./weekly-availability-editor";
 import ScheduleNotifications from "./schedule-notifications";
+import Overview from "./overview";
+import type { ScheduleFocus } from "@/lib/overview";
+import {
+  absenceReasons,
+  absencesForWeek,
+  absenceDate,
+  absenceEndDay,
+  absenceLabel,
+  isWholeDayAbsence,
+} from "@/lib/absences";
 import { scheduleNotices } from "@/lib/schedule-notifications";
 import {
   normalizeWeeklyAvailability,
@@ -38,10 +48,8 @@ import {
   ShieldCheck,
   LogOut,
   Menu,
-  ArrowUpLeft,
   Check,
   X,
-  Clock,
   Printer,
 } from "lucide-react";
 import {
@@ -71,6 +79,7 @@ type Field = {
   required?: boolean;
   dependsOn?: string;
   optionParent?: string;
+  wide?: boolean;
 };
 const nav = [
   ["dashboard", "סקירה כללית", LayoutDashboard],
@@ -136,6 +145,7 @@ function EntityForm({
   submitLabel = "שמירה",
   employeeForm = false,
   initialAvailability,
+  note,
 }: {
   submitLabel?: string;
   fields: Field[];
@@ -143,6 +153,7 @@ function EntityForm({
   onSubmit: (v: Record<string, string>) => Promise<void>;
   employeeForm?: boolean;
   initialAvailability?: unknown;
+  note?: string;
 }) {
   const [selections, setSelections] = useState<Record<string, string>>(
     initial || {},
@@ -188,9 +199,10 @@ function EntityForm({
         }
       }}
     >
+      {note && <p className="muted form-note">{note}</p>}
       <div className="form-grid">
         {fields.map((f) => (
-          <label key={f.key}>
+          <label key={f.key} className={f.wide ? "field-wide" : undefined}>
             {f.label}
             {f.options ? (
               <select
@@ -296,10 +308,11 @@ export default function Workspace({
     [filter, setFilter] = useState(""),
     [employeeFilter, setEmployeeFilter] = useState(""),
     [roleFilter, setRoleFilter] = useState(""),
-    [availabilityFilter, setAvailabilityFilter] = useState(""),
+    [absenceFilter, setAbsenceFilter] = useState(""),
     [siteFilter, setSiteFilter] = useState(""),
     [view, setView] = useState("week"),
     [search, setSearch] = useState("");
+  const [scheduleFocus, setScheduleFocus] = useState<ScheduleFocus>("all");
   const [shiftDate, setShiftDate] = useState("");
   const [lastUndo, setLastUndo] = useState<{
     week: string;
@@ -437,13 +450,22 @@ export default function Workspace({
       (m) => m.employee_id === e.id && m.department_id === departmentId,
     ),
   );
-  const submitted = (id: string) =>
-    data.availability.some(
-      (a) =>
-        a.employee_id === id &&
-        String(a.starts_at) < addDays(week, 7) &&
-        String(a.ends_at) > week,
-    );
+  const weekAbsences = absencesForWeek(data.availability, week);
+  const absentEmployees = new Set(weekAbsences.map((a) => a.employee_id));
+  const absentInWeek = (id: string) => absentEmployees.has(id);
+  const mayManageAbsence = (employee: Row) =>
+    isAdmin ||
+    employee.user_id === userId ||
+    employee.id === demoEmployee ||
+    (canEdit &&
+      data.employee_departments.some(
+        (m) =>
+          m.employee_id === employee.id &&
+          departments.some((d) => d.id === m.department_id),
+      ) &&
+      data.employee_departments
+        .filter((m) => m.employee_id === employee.id)
+        .every((m) => departments.some((d) => d.id === m.department_id)));
   const visibleEmployees = departmentEmployees.filter(
     (e) =>
       String(e.name).includes(search) &&
@@ -462,8 +484,10 @@ export default function Workspace({
             localDate(a.starts_at) >= week &&
             localDate(a.starts_at) <= addDays(week, 6),
         )) &&
-      (!availabilityFilter ||
-        submitted(e.id) === (availabilityFilter === "submitted")),
+      (!absenceFilter || absentInWeek(e.id) === (absenceFilter === "absent")),
+  );
+  const visibleAbsences = weekAbsences.filter((a) =>
+    visibleEmployees.some((e) => e.id === a.employee_id),
   );
   const selectDepartment = (id: string) => {
     setFilter(id);
@@ -475,7 +499,8 @@ export default function Workspace({
     setEmployeeFilter("");
     setRoleFilter("");
     setSiteFilter("");
-    setAvailabilityFilter("");
+    setAbsenceFilter("");
+    setScheduleFocus("all");
     setLastUndo(null);
     setEditor(null);
   };
@@ -498,30 +523,22 @@ export default function Workspace({
       v.department_id === departmentId &&
       v.status !== "archived",
   );
-  const weekAssigned = displayData.shift_assignments.filter((a) =>
-    data.schedule_versions.some(
-      (v) =>
-        v.id === a.version_id &&
-        v.week_start === week &&
-        v.status !== "archived",
-    ),
-  );
-  const dashboardGaps = shortages(
-    { ...data, shift_assignments: weekAssigned },
-    week,
-  );
   const assigned = displayData.shift_assignments.filter(
     (a) => a.version_id === version?.id,
+  );
+  const conflicts = assigned.filter(
+    (a) => a.employee_id && !canAssign(data, a, a.employee_id),
   );
   const filtered = assigned.filter(
     (a) =>
       a.department_id === departmentId &&
+      (scheduleFocus === "all" ||
+        (scheduleFocus === "open"
+          ? !a.employee_id
+          : conflicts.some((c) => c.id === a.id))) &&
       (!employeeFilter || a.employee_id === employeeFilter) &&
       (!siteFilter || a.site_id === siteFilter) &&
       (!roleFilter || a.role_id === roleFilter),
-  );
-  const conflicts = assigned.filter(
-    (a) => a.employee_id && !canAssign(data, a, a.employee_id),
   );
   const gaps = shortages(
     {
@@ -677,6 +694,31 @@ export default function Workspace({
         ...initial,
       },
     });
+  const openAbsence = (employee: Row, record?: Row) => {
+    const today = localDate(new Date().toISOString());
+    const day = today >= week && today < addDays(week, 7) ? today : week;
+    openEntity(
+      "absence",
+      `חופשות והיעדרויות · ${employee.name}`,
+      [
+        {
+          key: "absence_reason",
+          label: "סוג ההיעדרות",
+          options: [...absenceReasons],
+          wide: true,
+        },
+        { key: "starts_on", label: "מיום", type: "date" },
+        { key: "ends_on", label: "עד יום (כולל)", type: "date" },
+      ],
+      {
+        employee_id: employee.id,
+        absence_reason: String(record?.absence_reason || "vacation"),
+        starts_on: record ? localDate(String(record.starts_at)) : day,
+        ends_on: record ? absenceEndDay(record) : day,
+        ...(record ? { id: record.id } : {}),
+      },
+    );
+  };
   const saveEntity = async (values: Record<string, string>) => {
     if (!entity) return;
     if (entity.kind === "swap") {
@@ -693,6 +735,7 @@ export default function Workspace({
     }
     const v: Record<string, unknown> = { ...values };
     if (entity.initial?.id) v.id = entity.initial.id;
+    if (entity.kind === "absence") v.employee_id = entity.initial?.employee_id;
     if (entity.kind === "department") v.active = values.active !== "false";
     if (entity.kind === "employee") {
       v.active = values.active !== "false";
@@ -730,14 +773,20 @@ export default function Workspace({
     await post("/api/admin", { kind: entity.kind, data: v });
     if (entity.kind === "employee" && values.department_id)
       selectDepartment(values.department_id);
+    if (entity.kind === "absence") {
+      setWeek(sunday(new Date(values.starts_on + "T12:00:00Z")));
+      setAbsenceFilter("");
+    }
     setEntity(null);
     await load();
     setNotice(
-      entity.kind === "employee"
-        ? values.weekly_availability !== undefined && entity.initial?.id
-          ? "העובד והזמינות נשמרו. שיבוצים קיימים נשארו ללא שינוי ויופיעו לבדיקה אם נדרש."
-          : "העובד נשמר ומוכן לשיבוץ"
-        : "השינויים נשמרו בהצלחה",
+      entity.kind === "absence"
+        ? "ההיעדרות נשמרה ותילקח בחשבון בשיבוץ."
+        : entity.kind === "employee"
+          ? values.weekly_availability !== undefined && entity.initial?.id
+            ? "העובד והזמינות נשמרו. שיבוצים קיימים נשארו ללא שינוי ויופיעו לבדיקה אם נדרש."
+            : "העובד נשמר ומוכן לשיבוץ"
+          : "השינויים נשמרו בהצלחה",
     );
   };
   async function exportExcel() {
@@ -1050,6 +1099,7 @@ export default function Workspace({
                     setFilter("");
                     setEmployeeFilter("");
                     setSiteFilter("");
+                    setScheduleFocus("all");
                     setView("week");
                   }}
                 >
@@ -1072,44 +1122,48 @@ export default function Workspace({
         <div className="content">
           <div className="page-heading">
             <div>
-              {page !== "notifications" && (
+              {!["notifications", "dashboard"].includes(page) && (
                 <span className="eyebrow">ניהול חכם. צוות מחובר.</span>
               )}
               <h1>
                 {page === "dashboard"
-                  ? `יום עבודה מסודר מתחיל כאן`
+                  ? "מצב השבוע"
                   : nav.find((n) => n[0] === page)?.[1]}
               </h1>
               <p className="muted">
                 {page === "dashboard"
-                  ? "כל מה שצריך לדעת על הצוות והסידור השבועי, במבט אחד."
+                  ? canEdit
+                    ? "מה דורש טיפול ומה כבר מוכן, במחלקות שבאחריותך."
+                    : "המשמרות שפורסמו לך בשבוע הנבחר."
                   : page === "notifications"
                     ? "סידורים שפורסמו ושינויים שחשוב לדעת."
                     : "מרחב אחד לניהול מדויק, פשוט ומשותף."}
               </p>
             </div>
             <div className="row">
-              {canEdit && !version && page !== "schedule" && (
-                <button
-                  disabled={busy}
-                  onClick={() =>
-                    void run(async () => {
-                      await post("/api/change", {
-                        action: "create",
-                        week,
-                        department_id: departmentId,
-                      });
-                      setPage("schedule");
-                      setNotice(
-                        "הסידור השבועי נוצר. אפשר להתחיל להוסיף משמרות.",
-                      );
-                    })
-                  }
-                >
-                  יצירת סידור שבועי
-                </button>
-              )}
-              {canEdit && page !== "notifications" && (
+              {canEdit &&
+                !version &&
+                !["schedule", "dashboard", "notifications"].includes(page) && (
+                  <button
+                    disabled={busy}
+                    onClick={() =>
+                      void run(async () => {
+                        await post("/api/change", {
+                          action: "create",
+                          week,
+                          department_id: departmentId,
+                        });
+                        setPage("schedule");
+                        setNotice(
+                          "הסידור השבועי נוצר. אפשר להתחיל להוסיף משמרות.",
+                        );
+                      })
+                    }
+                  >
+                    יצירת סידור שבועי
+                  </button>
+                )}
+              {canEdit && !["notifications", "dashboard"].includes(page) && (
                 <button
                   className="primary"
                   disabled={busy || version?.status === "published"}
@@ -1259,179 +1313,33 @@ export default function Workspace({
                     <span>
                       {
                         departmentEmployees.filter(
-                          (e) => e.active && submitted(e.id),
+                          (e) => e.active && absentInWeek(e.id),
                         ).length
                       }{" "}
-                      הגישו זמינות לשבוע ·{" "}
-                      {
-                        departmentEmployees.filter(
-                          (e) => e.active && !submitted(e.id),
-                        ).length
-                      }{" "}
-                      טרם הגישו
+                      עם היעדרות בשבוע הנבחר
                     </span>
                   )}
                 </div>
               </section>
             )}
           {page === "dashboard" && (
-            <>
-              <div className="stats">
-                {[
-                  [
-                    CalendarDays,
-                    "משמרות השבוע",
-                    weekAssigned.length,
-                    "בסידור הנבחר",
-                  ],
-                  [
-                    Users,
-                    "עובדים פעילים",
-                    data.employees.filter((e) => e.active).length,
-                    "במחלקות שבאחריותך",
-                  ],
-                  [
-                    Clock,
-                    "משמרות פתוחות",
-                    weekAssigned.filter((a) => !a.employee_id).length,
-                    "ממתינות לשיבוץ",
-                  ],
-                  [
-                    ShieldCheck,
-                    "פערי איוש",
-                    dashboardGaps.reduce((s, g) => s + g.missing, 0),
-                    "לפי הדרישות שהוגדרו",
-                  ],
-                ].map(([Icon, label, note, sub], i) => {
-                  const I = Icon as typeof CalendarDays;
-                  return (
-                    <section className="stat" key={i}>
-                      <div className="row between">
-                        <span>{String(label)}</span>
-                        <span className={`stat-icon s${i}`}>
-                          <I size={20} />
-                        </span>
-                      </div>
-                      <b>{String(note)}</b>
-                      <small>{String(sub)}</small>
-                    </section>
-                  );
-                })}
-              </div>
-              <div className="dashboard-grid">
-                <section className="panel">
-                  <div className="section-heading">
-                    <div>
-                      <h2>תמונת מצב מחלקות</h2>
-                      <p className="muted">
-                        שבוע {week} · מעודכן לפי הרשאות הצפייה שלך
-                      </p>
-                    </div>
-                    <button
-                      className="text-button"
-                      onClick={() => setPage("schedule")}
-                    >
-                      לסידור המלא <ArrowUpLeft size={17} />
-                    </button>
-                  </div>
-                  {!data.departments.length ? (
-                    <Empty text="המחלקות שלך יופיעו כאן לאחר חיבור והגדרה" />
-                  ) : (
-                    <div className="department-grid">
-                      {data.departments.map((d) => {
-                        const shifts = weekAssigned.filter(
-                          (a) => a.department_id === d.id,
-                        );
-                        return (
-                          <button
-                            className="department-card"
-                            key={d.id}
-                            onClick={() => {
-                              selectDepartment(d.id);
-                              setPage("schedule");
-                            }}
-                          >
-                            <span
-                              className="department-icon"
-                              style={{ color: String(d.color) }}
-                            >
-                              <Building2 />
-                            </span>
-                            <h3>{String(d.name)}</h3>
-                            <p>{shifts.length} משמרות השבוע</p>
-                            <div className="progress">
-                              <span
-                                style={{
-                                  width: `${shifts.length ? (100 * shifts.filter((a) => a.employee_id).length) / shifts.length : 0}%`,
-                                  background: String(d.color),
-                                }}
-                              />
-                            </div>
-                            <small>
-                              {shifts.filter((a) => !a.employee_id).length}{" "}
-                              משמרות פתוחות <ChevronLeft size={13} />
-                            </small>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </section>
-                <section className="ai-promo">
-                  <div className="ai-star">
-                    <Sparkles size={28} />
-                  </div>
-                  <span className="eyebrow">העוזר האישי שלך</span>
-                  <h2>
-                    פחות תפעול.
-                    <br />
-                    יותר שליטה.
-                  </h2>
-                  <p>
-                    בקשה בשפה טבעית הופכת להצעה מסודרת. בודקים, מאשרים — ורק אז
-                    מעדכנים.
-                  </p>
-                  <button onClick={() => setPage("ai")}>
-                    בואו נסדר את השבוע <ArrowUpLeft size={17} />
-                  </button>
-                  <small>בקרוב — העוזר אינו פעיל</small>
-                </section>
-              </div>
-              <section className="panel">
-                <div className="section-heading">
-                  <h2>תשומת לב לשבוע הקרוב</h2>
-                  <span className="badge">{dashboardGaps.length} פערים</span>
-                </div>
-                {dashboardGaps.length ? (
-                  dashboardGaps.map((g, i) => (
-                    <div className="list-row" key={i}>
-                      <span className="warning-icon">
-                        <Clock size={18} />
-                      </span>
-                      <div>
-                        <strong>
-                          {name("departments", g.requirement.department_id)} ·{" "}
-                          {g.day}
-                        </strong>
-                        <p>
-                          חסרים {g.missing} עובדים · {time(g.starts_at)}–
-                          {time(g.ends_at)} ·{" "}
-                          {name("roles", g.requirement.role_id)}
-                        </p>
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <Empty
-                    text={
-                      data.coverage_requirements.length
-                        ? "לא נמצאו פערים בדרישות האיוש שהוגדרו"
-                        : "טרם הוגדרו דרישות איוש. לאחר ההגדרה ניתן יהיה לזהות חוסרים."
-                    }
-                  />
-                )}
-              </section>
-            </>
+            <Overview
+              data={displayData}
+              departments={departments}
+              week={week}
+              canEdit={canEdit}
+              employeeId={
+                demoEmployee ||
+                data.employees.find((e) => e.user_id === userId)?.id
+              }
+              onWeekChange={setWeek}
+              onNavigate={(department, target, focus = "all") => {
+                selectDepartment(department);
+                setScheduleFocus(focus);
+                setView("week");
+                setPage(target);
+              }}
+            />
           )}
           {page === "schedule" && (
             <>
@@ -1767,7 +1675,10 @@ export default function Workspace({
                       <select
                         aria-label="תצוגה"
                         value={view}
-                        onChange={(e) => setView(e.target.value)}
+                        onChange={(e) => {
+                          setView(e.target.value);
+                          setScheduleFocus("all");
+                        }}
                       >
                         <option value="week">שבוע</option>
                         <option value="month">חודש</option>
@@ -1802,6 +1713,19 @@ export default function Workspace({
                     </div>
                   </div>
                 </details>
+                {scheduleFocus !== "all" && (
+                  <div className="schedule-focus" role="status">
+                    <span>
+                      {scheduleFocus === "open"
+                        ? "מוצגות משמרות פנויות בלבד"
+                        : "מוצגים שיבוצים שדורשים בדיקה"}{" "}
+                      · {filtered.length}
+                    </span>
+                    <button onClick={() => setScheduleFocus("all")}>
+                      הצגת כל המשמרות
+                    </button>
+                  </div>
+                )}
                 {canEdit &&
                 !assigned.length &&
                 (!version || version.status === "draft") ? (
@@ -2077,15 +2001,15 @@ export default function Workspace({
                   </select>
                 </label>
                 <label>
-                  הגשת זמינות
+                  היעדרויות בשבוע הנבחר
                   <select
-                    aria-label="סינון זמינות"
-                    value={availabilityFilter}
-                    onChange={(e) => setAvailabilityFilter(e.target.value)}
+                    aria-label="סינון היעדרויות"
+                    value={absenceFilter}
+                    onChange={(e) => setAbsenceFilter(e.target.value)}
                   >
                     <option value="">כולם</option>
-                    <option value="submitted">הגישו השבוע</option>
-                    <option value="missing">טרם הגישו</option>
+                    <option value="absent">עם היעדרויות</option>
+                    <option value="present">ללא היעדרויות מדווחות</option>
                   </select>
                 </label>
               </div>
@@ -2123,58 +2047,20 @@ export default function Workspace({
                       </td>
                       <td>
                         <span className="badge">
-                          {e.active ? "פעיל" : "לא פעיל"} ·{" "}
-                          {submitted(e.id)
-                            ? "הוגשה זמינות"
-                            : "טרם הוגשה זמינות"}
+                          {e.active ? "פעיל" : "לא פעיל"}
                         </span>
+                        {absentInWeek(e.id) && (
+                          <span className="badge absence-badge">
+                            היעדרות בשבוע הנבחר
+                          </span>
+                        )}
                       </td>
                       <td>
-                        {!isAdmin &&
-                          (e.user_id === userId ||
-                            e.id === demoEmployee ||
-                            (canEdit &&
-                              data.employee_departments
-                                .filter((m) => m.employee_id === e.id)
-                                .every((m) =>
-                                  departments.some(
-                                    (d) => d.id === m.department_id,
-                                  ),
-                                ))) && (
-                            <button
-                              onClick={() =>
-                                openEntity(
-                                  "availability",
-                                  "הגשת זמינות ואילוצים",
-                                  [
-                                    { ...emp, options: [e] },
-                                    {
-                                      key: "start",
-                                      label: "מתאריך ושעה",
-                                      type: "datetime-local",
-                                    },
-                                    {
-                                      key: "end",
-                                      label: "עד תאריך ושעה",
-                                      type: "datetime-local",
-                                    },
-                                    {
-                                      key: "kind",
-                                      label: "סוג",
-                                      options: [
-                                        { id: "available", name: "זמין" },
-                                        { id: "unavailable", name: "לא זמין" },
-                                        { id: "leave", name: "חופשה" },
-                                      ],
-                                    },
-                                  ],
-                                  { employee_id: e.id },
-                                )
-                              }
-                            >
-                              הגשת זמינות
-                            </button>
-                          )}
+                        {!isAdmin && mayManageAbsence(e) && (
+                          <button onClick={() => openAbsence(e)}>
+                            חופשות והיעדרויות
+                          </button>
+                        )}
                         {isAdmin && (
                           <div className="row">
                             <button
@@ -2225,41 +2111,8 @@ export default function Workspace({
                             >
                               הכשרה
                             </button>
-                            <button
-                              onClick={() =>
-                                openEntity(
-                                  "availability",
-                                  "זמינות וחופשה",
-                                  [
-                                    emp,
-                                    {
-                                      key: "start",
-                                      label: "מתאריך ושעה",
-                                      type: "datetime-local",
-                                    },
-                                    {
-                                      key: "end",
-                                      label: "עד תאריך ושעה",
-                                      type: "datetime-local",
-                                    },
-                                    {
-                                      key: "kind",
-                                      label: "סוג",
-                                      options: [
-                                        {
-                                          id: "unavailable",
-                                          name: "לא זמין",
-                                        },
-                                        { id: "leave", name: "חופשה" },
-                                        { id: "available", name: "זמין" },
-                                      ],
-                                    },
-                                  ],
-                                  { employee_id: e.id },
-                                )
-                              }
-                            >
-                              זמינות
+                            <button onClick={() => openAbsence(e)}>
+                              חופשות והיעדרויות
                             </button>
                           </div>
                         )}
@@ -2271,22 +2124,98 @@ export default function Workspace({
               {!data.employees.length && (
                 <Empty text="עדיין אין עובדים להצגה" />
               )}
-              <h3>חלונות זמינות וחופשות</h3>
-              {data.availability
-                .filter((a) =>
-                  departmentEmployees.some((e) => e.id === a.employee_id),
-                )
-                .map((a) => (
-                  <div className="list-row" key={a.id}>
-                    {name("employees", a.employee_id)} ·{" "}
-                    {a.kind === "available"
-                      ? "זמין"
-                      : a.kind === "leave"
-                        ? "חופשה"
-                        : "לא זמין"}{" "}
-                    · {String(a.starts_at)} — {String(a.ends_at)}
+              <section
+                className="absence-list"
+                aria-label="חופשות והיעדרויות מדווחות"
+              >
+                <div className="section-heading">
+                  <div>
+                    <h3>חופשות והיעדרויות בשבוע הנבחר</h3>
+                    <p className="muted">
+                      <bdi>
+                        {absenceDate(week)} – {absenceDate(addDays(week, 6))}
+                      </bdi>
+                    </p>
                   </div>
-                ))}
+                  <div className="row">
+                    <button
+                      aria-label="שבוע קודם בהיעדרויות"
+                      onClick={() => setWeek(addDays(week, -7))}
+                    >
+                      <ChevronRight size={16} />
+                    </button>
+                    <button onClick={() => setWeek(sunday())}>השבוע</button>
+                    <button
+                      aria-label="שבוע הבא בהיעדרויות"
+                      onClick={() => setWeek(addDays(week, 7))}
+                    >
+                      <ChevronLeft size={16} />
+                    </button>
+                  </div>
+                </div>
+                {visibleAbsences
+                  .sort((a, b) =>
+                    String(a.starts_at).localeCompare(String(b.starts_at)),
+                  )
+                  .map((a) => {
+                    const employee = data.employees.find(
+                      (e) => e.id === a.employee_id,
+                    )!;
+                    return (
+                      <article className="absence-record" key={a.id}>
+                        <div>
+                          <strong>
+                            {employee.name as string} · {absenceLabel(a)}
+                          </strong>
+                          <p>
+                            <bdi>
+                              {absenceDate(localDate(String(a.starts_at)))} –{" "}
+                              {absenceDate(absenceEndDay(a))}
+                            </bdi>{" "}
+                            · כולל יום הסיום
+                          </p>
+                          {!isWholeDayAbsence(a) && (
+                            <small>
+                              דיווח קודם לפי שעות:{" "}
+                              <bdi>
+                                {time(String(a.starts_at))}–
+                                {time(String(a.ends_at))}
+                              </bdi>
+                            </small>
+                          )}
+                        </div>
+                        {mayManageAbsence(employee) && (
+                          <div className="row">
+                            {isWholeDayAbsence(a) && (
+                              <button onClick={() => openAbsence(employee, a)}>
+                                עריכת היעדרות
+                              </button>
+                            )}
+                            <button
+                              className="text-danger"
+                              onClick={() =>
+                                void run(async () => {
+                                  await post("/api/admin", {
+                                    kind: "cancel_absence",
+                                    data: { id: a.id },
+                                  });
+                                  setNotice(
+                                    "דיווח ההיעדרות בוטל. הזמינות הקבועה נשארה ללא שינוי.",
+                                  );
+                                })
+                              }
+                            >
+                              ביטול דיווח
+                            </button>
+                          </div>
+                        )}
+                      </article>
+                    );
+                  })}
+                {!visibleAbsences.length && (
+                  <p className="muted">אין היעדרויות מדווחות בשבוע הנבחר.</p>
+                )}
+              </section>
             </section>
           )}
           {page === "departments" && (
@@ -2864,6 +2793,12 @@ export default function Workspace({
             fields={entity.fields}
             initial={entity.initial}
             onSubmit={saveEntity}
+            submitLabel={entity.kind === "absence" ? "שמירת היעדרות" : "שמירה"}
+            note={
+              entity.kind === "absence"
+                ? "הדיווח חל על ימים מלאים, כולל תאריך הסיום. שיבוצים קיימים יישארו לבדיקה."
+                : undefined
+            }
             employeeForm={entity.kind === "employee"}
             initialAvailability={
               data.employees.find((e) => e.id === entity.initial?.id)
