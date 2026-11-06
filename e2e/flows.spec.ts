@@ -8,7 +8,7 @@ test("create organization, employee and night shift; confirm, reload and publish
   });
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
-  await page.goto("/");
+  await page.goto("/app");
   await page.getByLabel("דוא״ל").fill("admin@example.test");
   await page.getByLabel("סיסמה").fill("test-password-only");
   await page.getByRole("button", { name: "המשך", exact: true }).click();

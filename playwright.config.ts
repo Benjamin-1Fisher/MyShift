@@ -1,18 +1,23 @@
+import { existsSync } from "node:fs";
 import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: "./e2e",
-  testMatch: "workspace.spec.ts",
+  testMatch: ["workspace.spec.ts", "demo.spec.ts"],
   use: {
-    baseURL: "http://127.0.0.1:3000",
+    baseURL: process.env.E2E_BASE_URL || "http://127.0.0.1:3000",
     launchOptions: {
-      executablePath: "/usr/bin/chromium",
+      executablePath: existsSync("/usr/bin/chromium")
+        ? "/usr/bin/chromium"
+        : undefined,
       args: ["--no-sandbox"],
     },
   },
-  webServer: {
-    command: "npm start",
-    url: "http://127.0.0.1:3000",
-    reuseExistingServer: true,
-    timeout: 60000,
-  },
+  webServer: process.env.E2E_BASE_URL
+    ? undefined
+    : {
+        command: "npm start",
+        url: "http://127.0.0.1:3000",
+        reuseExistingServer: true,
+        timeout: 60000,
+      },
 });

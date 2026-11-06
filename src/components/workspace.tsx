@@ -1,6 +1,13 @@
 "use client";
 import Link from "next/link";
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 import { createBrowserClient } from "@supabase/ssr";
 import {
   LayoutDashboard,
@@ -72,7 +79,7 @@ const time = (v: string) =>
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(v));
-async function post(url: string, body: unknown) {
+async function serverPost(url: string, body: unknown) {
   const r = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -103,7 +110,7 @@ function Modal({
             </Dialog.Close>
           </div>
           <Dialog.Description className="muted">
-            השינויים כפופים להרשאות ולבדיקות בצד השרת.
+            בדקו את פרטי השינוי לפני האישור.
           </Dialog.Description>
           {children}
         </Dialog.Content>
@@ -202,9 +209,26 @@ function EntityForm({
     </form>
   );
 }
-export default function Workspace({ configured }: { configured: boolean }) {
+export default function Workspace({
+  configured,
+  demo = false,
+}: {
+  configured: boolean;
+  demo?: boolean;
+}) {
+  const router = useRouter();
+  const demoLoaded = useRef(false);
+  const [demoEmployee, setDemoEmployee] = useState("");
+  const [demoReady, setDemoReady] = useState(false);
+  const post: typeof serverPost = async (url, body) => {
+    if (demo) {
+      const { demoCommand } = await import("@/lib/demo");
+      return demoCommand(url, body);
+    }
+    return serverPost(url, body);
+  };
   const [client] = useState(() =>
-    configured
+    configured && !demo
       ? createBrowserClient(
           process.env.NEXT_PUBLIC_SUPABASE_URL!,
           process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -236,6 +260,30 @@ export default function Workspace({ configured }: { configured: boolean }) {
     [importRows, setImportRows] = useState<Record<string, string>[]>([]),
     [mapping, setMapping] = useState<Record<string, string>>({});
   const load = useCallback(async () => {
+    if (demo) {
+      const { loadDemo, DEMO_ADMIN } = await import("@/lib/demo");
+      const saved = loadDemo();
+      if (
+        !demoLoaded.current &&
+        !saved.schedule_versions.some((v) => v.week_start === sunday())
+      ) {
+        const latest = saved.schedule_versions
+          .map((v) => String(v.week_start))
+          .sort()
+          .at(-1);
+        if (latest) {
+          setWeek(latest);
+          setNotice(
+            "מוצג השבוע האחרון שנשמר בהדגמה. אפשר לעבור לשבוע הנוכחי וליצור סידור חדש.",
+          );
+        }
+      }
+      demoLoaded.current = true;
+      setData(saved);
+      setUserId(DEMO_ADMIN);
+      setDemoReady(true);
+      return;
+    }
     if (!client) return;
     const r = await fetch("/api/data", { cache: "no-store" });
     if (r.status === 401) {
@@ -247,8 +295,19 @@ export default function Workspace({ configured }: { configured: boolean }) {
     if (!r.ok) throw new Error(result.error);
     setData(result.data);
     setUserId(result.userId);
-  }, [client]);
+  }, [client, demo]);
   useEffect(() => {
+    if (demo) {
+      const refresh = () => {
+        void load().catch((e) => setError(e.message));
+      };
+      refresh();
+      const sync = (event: StorageEvent) => {
+        if (event.key === "myshift.demo.v1") refresh();
+      };
+      window.addEventListener("storage", sync);
+      return () => window.removeEventListener("storage", sync);
+    }
     if (!client) return;
     let active = true;
     const refresh = () => load().catch((e) => active && setError(e.message));
@@ -262,12 +321,30 @@ export default function Workspace({ configured }: { configured: boolean }) {
       clearInterval(timer);
       listener.subscription.unsubscribe();
     };
-  }, [client, load]);
-  const profile = data.profiles.find((p) => p.id === userId),
+  }, [client, load, demo]);
+  const displayData = demoEmployee
+    ? {
+        ...data,
+        shift_assignments: data.shift_assignments.filter(
+          (a) =>
+            a.employee_id === demoEmployee &&
+            data.schedule_versions.some(
+              (v) => v.id === a.version_id && v.status === "published",
+            ),
+        ),
+      }
+    : data;
+  const profile = demoEmployee
+      ? {
+          id: demoEmployee,
+          name: data.employees.find((e) => e.id === demoEmployee)?.name,
+          role: "employee",
+        }
+      : data.profiles.find((p) => p.id === userId),
     isAdmin = profile?.role === "admin",
     canEdit = !!profile && profile.role !== "employee";
   const version = data.schedule_versions.find((v) => v.week_start === week);
-  const assigned = data.shift_assignments.filter(
+  const assigned = displayData.shift_assignments.filter(
     (a) => a.version_id === version?.id,
   );
   const filtered = assigned.filter(
@@ -504,30 +581,44 @@ export default function Workspace({ configured }: { configured: boolean }) {
     return (
       <main className="connection-page">
         <section className="connection-card">
-          <h1>כניסה ל־MyShift</h1>
-          <p>התחבר לחשבון הארגון כדי לנהל עובדים וסידורי עבודה.</p>
-          <EntityForm
-            fields={[
-              { key: "email", label: "דוא״ל", type: "email" },
-              { key: "password", label: "סיסמה", type: "password" },
-            ]}
-            onSubmit={async (v) => {
-              const r = await client!.auth.signInWithPassword({
-                email: v.email,
-                password: v.password,
-              });
-              if (r.error) throw new Error("פרטי ההתחברות אינם תקינים");
-              await load();
-            }}
-          />
-          {error && (
-            <p className="error" role="alert">
-              {error}
+          <h1>{demo ? "טוענים את ההדגמה" : "כניסה ל־MyShift"}</h1>
+          {demo ? (
+            <p role={error ? "alert" : "status"}>
+              {error || "מכינים את לוח העבודה המקומי…"}
             </p>
+          ) : (
+            <>
+              <Link className="button" href="/demo">
+                כניסה להדגמה
+              </Link>
+              <p>התחבר לחשבון הארגון כדי לנהל עובדים וסידורי עבודה.</p>
+              <EntityForm
+                fields={[
+                  { key: "email", label: "דוא״ל", type: "email" },
+                  { key: "password", label: "סיסמה", type: "password" },
+                ]}
+                onSubmit={async (v) => {
+                  const r = await client!.auth.signInWithPassword({
+                    email: v.email,
+                    password: v.password,
+                  });
+                  if (r.error) throw new Error("פרטי ההתחברות אינם תקינים");
+                  await load();
+                }}
+              />
+              {error && (
+                <p className="error" role="alert">
+                  {error}
+                </p>
+              )}
+              <p className="muted">
+                אין חשבון? מנהל הארגון צריך להזמין אותך ולתת לך הרשאות.
+              </p>
+            </>
           )}
-          <p className="muted">
-            אין חשבון? מנהל הארגון צריך להזמין אותך ולתת לך הרשאות.
-          </p>
+          <Link className="button" href="/">
+            חזרה לדף הפתיחה
+          </Link>
         </section>
       </main>
     );
@@ -566,7 +657,11 @@ export default function Workspace({ configured }: { configured: boolean }) {
         <div className="sidebar-note">
           <ShieldCheck size={22} />
           <strong>הכול במקום אחד.</strong>
-          <p>הצוות, המשמרות והשינויים — מסונכרנים וברורים.</p>
+          <p>
+            {demo
+              ? "נתוני ההדגמה נשמרים רק בדפדפן הזה."
+              : "הצוות, המשמרות והשינויים — מסונכרנים וברורים."}
+          </p>
         </div>
         <div className="profile">
           <span className="avatar">
@@ -587,7 +682,10 @@ export default function Workspace({ configured }: { configured: boolean }) {
           {userId && (
             <button
               aria-label="יציאה"
-              onClick={() => void client?.auth.signOut()}
+              onClick={() => {
+                if (demo) router.push("/");
+                else void client?.auth.signOut();
+              }}
             >
               <LogOut size={16} />
             </button>
@@ -611,7 +709,11 @@ export default function Workspace({ configured }: { configured: boolean }) {
           <div className="row">
             <span className="connection">
               <i className="dot" />
-              {userId ? "רענון אוטומטי · כל 10 שניות" : "סביבת עבודה חדשה"}
+              {demo
+                ? "שמירה מקומית בדפדפן"
+                : userId
+                  ? "רענון אוטומטי · כל 10 שניות"
+                  : "סביבת עבודה חדשה"}
             </span>
             <button
               aria-label="התראות"
@@ -621,6 +723,46 @@ export default function Workspace({ configured }: { configured: boolean }) {
             </button>
           </div>
         </header>
+        {demo && demoReady && (
+          <div className="demo-banner" role="region" aria-label="מצב הדגמה">
+            <div>
+              <strong>מצב הדגמה — נתונים לדוגמה</strong>
+              <span>
+                השינויים נשמרים בדפדפן הזה בלבד, ללא מסד משותף. פרסום אינו שולח
+                הודעות לעובדים.
+              </span>
+            </div>
+            <div className="row">
+              <label className="demo-view-label">
+                תצוגה
+                <select
+                  aria-label="תצוגת הדגמה"
+                  value={demoEmployee}
+                  onChange={(e) => {
+                    setDemoEmployee(e.target.value);
+                    setPage(e.target.value ? "schedule" : "dashboard");
+                    setFilter("");
+                    setEmployeeFilter("");
+                    setSiteFilter("");
+                    setView("week");
+                  }}
+                >
+                  <option value="">מנהל</option>
+                  {data.employees
+                    .filter((e) => e.active)
+                    .map((e) => (
+                      <option key={e.id} value={e.id}>
+                        עובד · {String(e.name)}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <Link className="button" href="/app">
+                למערכת הארגונית
+              </Link>
+            </div>
+          </div>
+        )}
         <div className="content">
           <div className="page-heading">
             <div>
@@ -668,7 +810,7 @@ export default function Workspace({ configured }: { configured: boolean }) {
               )}
             </div>
           </div>
-          {!configured && (
+          {!configured && !demo && (
             <div className="setup-banner">
               <ShieldCheck />
               <div>
@@ -921,6 +1063,14 @@ export default function Workspace({ configured }: { configured: boolean }) {
           )}
           {page === "schedule" && (
             <>
+              {demoEmployee && (
+                <div className="alert" role="status">
+                  תצוגת עובד · {String(profile?.name)} — מוצגות רק המשמרות
+                  האישיות בסידור שפורסם בדפדפן הזה.
+                  {version?.status !== "published" &&
+                    " השבוע הנבחר עדיין בטיוטה; חזרו לתצוגת מנהל כדי לפרסם אותו."}
+                </div>
+              )}
               <section className="panel schedule-panel">
                 <div className="toolbar">
                   <div className="row">
@@ -1083,7 +1233,11 @@ export default function Workspace({ configured }: { configured: boolean }) {
                                   : "publish",
                               week,
                             });
-                            setNotice("מצב הסידור עודכן");
+                            setNotice(
+                              demo
+                                ? "מצב סידור ההדגמה עודכן בדפדפן הזה בלבד"
+                                : "מצב הסידור עודכן",
+                            );
                           })
                         }
                       >
@@ -1161,7 +1315,7 @@ export default function Workspace({ configured }: { configured: boolean }) {
                       .map((day) => (
                         <div className="month-day" key={day}>
                           <strong>{day}</strong>
-                          {data.shift_assignments
+                          {displayData.shift_assignments
                             .filter(
                               (a) =>
                                 localDate(a.starts_at) === day &&
@@ -1199,7 +1353,10 @@ export default function Workspace({ configured }: { configured: boolean }) {
                 )}
                 <div className="schedule-footer">
                   <span>
-                    <i className="dot" /> גרירה יוצרת תצוגה מקדימה לאישור
+                    <i className="dot" />
+                    {demoEmployee
+                      ? "צפייה בסידור אישי שפורסם"
+                      : "גרירה יוצרת תצוגה מקדימה לאישור"}
                   </span>
                   <span>שעות לפי שעון ישראל · סוף משמרת לילה ביום הבא</span>
                 </div>
@@ -1245,7 +1402,7 @@ export default function Workspace({ configured }: { configured: boolean }) {
                   )}
                 </div>
               </div>
-              <table>
+              <table className="employees-table">
                 <thead>
                   <tr>
                     <th>עובד</th>
@@ -1289,11 +1446,15 @@ export default function Workspace({ configured }: { configured: boolean }) {
                                     "עריכת עובד",
                                     [
                                       { key: "name", label: "שם" },
-                                      {
-                                        key: "user_id",
-                                        label: "מזהה משתמש",
-                                        required: false,
-                                      },
+                                      ...(!demo
+                                        ? [
+                                            {
+                                              key: "user_id",
+                                              label: "מזהה משתמש",
+                                              required: false,
+                                            },
+                                          ]
+                                        : []),
                                       {
                                         key: "active",
                                         label: "מצב",
@@ -1484,13 +1645,20 @@ export default function Workspace({ configured }: { configured: boolean }) {
           {page === "ai" && (
             <section className="panel chat">
               <div className="chat-intro">
-                <span className="ai-star"><Sparkles /></span>
+                <span className="ai-star">
+                  <Sparkles />
+                </span>
                 <h2>עוזר AI — בקרוב</h2>
-                <p className="muted">העוזר אינו פעיל כרגע. אפשר לנהל עובדים ומשמרות באופן ידני לאחר חיבור מסד הנתונים.</p>
+                <p className="muted">
+                  העוזר אינו פעיל כרגע. אפשר להוסיף עובדים ולשבץ משמרות באופן
+                  ידני.
+                </p>
               </div>
               <div className="chat-input">
                 <input disabled placeholder="בקרוב" aria-label="בקשה לעוזר" />
-                <button className="primary" disabled>בקרוב <Sparkles size={16} /></button>
+                <button className="primary" disabled>
+                  בקרוב <Sparkles size={16} />
+                </button>
               </div>
             </section>
           )}
@@ -1935,7 +2103,9 @@ export default function Workspace({ configured }: { configured: boolean }) {
                   });
                   setPreview(null);
                   setNotice(
-                    "השינוי אושר ונשמר. המשתמשים הרלוונטיים יקבלו עדכון.",
+                    demo
+                      ? "השינוי נשמר בדפדפן הזה בלבד. לא נשלח עדכון לעובדים."
+                      : "השינוי אושר ונשמר. המשתמשים הרלוונטיים יקבלו עדכון.",
                   );
                 })
               }
