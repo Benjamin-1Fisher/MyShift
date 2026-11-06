@@ -233,8 +233,6 @@ export default function Workspace({ configured }: { configured: boolean }) {
       initial?: Record<string, string>;
     } | null>(null),
     [preview, setPreview] = useState<Preview | null>(null),
-    [prompt, setPrompt] = useState(""),
-    [messages, setMessages] = useState<{ role: string; text: string }[]>([]),
     [importRows, setImportRows] = useState<Record<string, string>[]>([]),
     [mapping, setMapping] = useState<Record<string, string>>({});
   const load = useCallback(async () => {
@@ -557,7 +555,7 @@ export default function Workspace({ configured }: { configured: boolean }) {
             >
               <Icon size={19} />
               {label}
-              {key === "ai" && <span className="tiny-tag">AI</span>}
+              {key === "ai" && <span className="tiny-tag">בקרוב</span>}
               {key === "notifications" &&
                 data.notifications.some((n) => !n.read) && (
                   <i className="dot" />
@@ -882,11 +880,7 @@ export default function Workspace({ configured }: { configured: boolean }) {
                   <button onClick={() => setPage("ai")}>
                     בואו נסדר את השבוע <ArrowUpLeft size={17} />
                   </button>
-                  <small>
-                    {configured
-                      ? "נדרש מפתח OpenAI בשרת"
-                      : "חיבור AI טרם הוגדר"}
-                  </small>
+                  <small>בקרוב — העוזר אינו פעיל</small>
                 </section>
               </div>
               <section className="panel">
@@ -1490,75 +1484,14 @@ export default function Workspace({ configured }: { configured: boolean }) {
           {page === "ai" && (
             <section className="panel chat">
               <div className="chat-intro">
-                <span className="ai-star">
-                  <Sparkles />
-                </span>
-                <h2>מה נסדר היום?</h2>
-                <p className="muted">
-                  אפשר לשאול על זמינות וחוסרים, או לבקש שינוי בסידור של {week}.
-                  <br />
-                  כל שינוי ייבדק ויוצג לאישור שלך לפני הביצוע.
-                </p>
-                <div className="suggestions">
-                  {[
-                    "תראה לי איפה חסרים עובדים השבוע",
-                    "מי פנוי ביום שישי למשמרת לילה?",
-                    "תכין טיוטת סידור לפי הזמינות",
-                  ].map((s) => (
-                    <button onClick={() => setPrompt(s)} key={s}>
-                      {s}
-                      <ArrowUpLeft size={14} />
-                    </button>
-                  ))}
-                </div>
+                <span className="ai-star"><Sparkles /></span>
+                <h2>עוזר AI — בקרוב</h2>
+                <p className="muted">העוזר אינו פעיל כרגע. אפשר לנהל עובדים ומשמרות באופן ידני לאחר חיבור מסד הנתונים.</p>
               </div>
-              <div className="messages">
-                {messages.map((m, i) => (
-                  <div className={`message ${m.role}`} key={i}>
-                    {m.text}
-                  </div>
-                ))}
+              <div className="chat-input">
+                <input disabled placeholder="בקרוב" aria-label="בקשה לעוזר" />
+                <button className="primary" disabled>בקרוב <Sparkles size={16} /></button>
               </div>
-              <form
-                className="chat-input"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  if (!prompt.trim()) return;
-                  const msg = prompt;
-                  setPrompt("");
-                  setMessages((m) => [...m, { role: "user", text: msg }]);
-                  void run(async () => {
-                    if (!version)
-                      throw new Error("יש ליצור או לבחור סידור שבועי תחילה");
-                    const result = await post("/api/ai", {
-                      message: msg,
-                      version: version.id,
-                      week,
-                    });
-                    setMessages((m) => [
-                      ...m,
-                      { role: "assistant", text: result.message },
-                    ]);
-                    if (result.preview) setPreview(result.preview);
-                  });
-                }}
-              >
-                <input
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                  placeholder="כתוב בקשה בעברית…"
-                  aria-label="בקשה לעוזר"
-                  maxLength={3000}
-                />
-                <button className="primary" disabled={busy || !canEdit}>
-                  {busy ? "בודק…" : "שליחה"}
-                  <Sparkles size={16} />
-                </button>
-              </form>
-              <small className="muted">
-                המידע הנחוץ לבקשה מועבר ל־OpenAI. יש לפעול בהתאם למדיניות
-                הארגון.
-              </small>
             </section>
           )}
           {page === "notifications" && (
