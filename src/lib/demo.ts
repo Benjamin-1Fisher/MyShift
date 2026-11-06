@@ -2,6 +2,7 @@ import { z } from "zod";
 import { adminSchema } from "./admin-schema";
 import {
   addDays,
+  availabilityWindows,
   duration,
   interval,
   localDate,
@@ -27,7 +28,12 @@ type Pending = {
   revision: number;
   changes: Change[];
 };
-type Store = { schema: 1; data: Data; pending: Pending[] };
+type Store = {
+  schema: 1;
+  data: Data;
+  pending: Pending[];
+  departmentsUpgraded?: boolean;
+};
 const rowSchema = z.object({ id: z.string() }).catchall(z.unknown());
 const dataSchema = z.object(
   Object.fromEntries(tables.map((t) => [t, z.array(rowSchema)])),
@@ -142,7 +148,74 @@ export function seedDemo(): Store {
       created_at: new Date().toISOString(),
     },
   ];
-  return { schema: 1, data, pending: [] };
+  return upgradeDemo({ schema: 1, data, pending: [] });
+}
+
+// Additive upgrade: keep the same storage key, employees, shifts, archives and history.
+export function upgradeDemo(store: Store): Store {
+  const data = store.data;
+  data.manager_departments ||= [];
+  if (store.departmentsUpgraded) return store;
+  for (const [index, name, color] of [
+    [1, "אחמ״שים", "#7360d6"],
+    [2, "סיירים", "#149c8e"],
+    [10, "קבלה", "#3979bb"],
+    [11, "חניונים", "#b27724"],
+  ] as const) {
+    if (data.departments.some((d) => d.id === fixed(index) || d.name === name))
+      continue;
+    const department_id = fixed(index);
+    data.departments.push({ id: department_id, name, color, active: true });
+    const role_id = fixed(index + 600);
+    data.roles.push({ id: role_id, department_id, name });
+    // Unknown working hours remain empty until a manager explicitly configures them.
+    data.shift_templates.push({
+      id: fixed(index + 620),
+      department_id,
+      name: "שעות להגדרה",
+      start_time: null,
+      end_time: null,
+      confirmed: false,
+    });
+    for (let i = 0; i < 2; i++) {
+      const employee_id = fixed(index * 10 + 700 + i);
+      data.employees.push({
+        id: employee_id,
+        name: `${name} — עובד לדוגמה ${i + 1}`,
+        active: true,
+      });
+      data.employee_departments.push({
+        id: uid(),
+        employee_id,
+        department_id,
+        role_id,
+      });
+    }
+  }
+  for (const version of data.schedule_versions.slice()) {
+    if (version.department_id) continue;
+    const deps = [
+      ...new Set(
+        data.shift_assignments
+          .filter((a) => a.version_id === version.id)
+          .map((a) => a.department_id),
+      ),
+    ];
+    if (!deps.length) deps.push(data.departments[0].id);
+    for (const [i, department_id] of deps.entries()) {
+      const scoped = i === 0 ? version : { ...version, id: uid() };
+      scoped.department_id = department_id;
+      if (i) {
+        data.schedule_versions.push(scoped);
+        for (const a of data.shift_assignments)
+          if (a.version_id === version.id && a.department_id === department_id)
+            a.version_id = scoped.id;
+      }
+    }
+    store.pending = store.pending.filter((r) => r.version !== version.id);
+  }
+  store.departmentsUpgraded = true;
+  return store;
 }
 
 function write(store: Store) {
@@ -171,10 +244,14 @@ function read(): Store {
   try {
     const store = JSON.parse(raw);
     if (store.schema !== 1 || !Array.isArray(store.pending)) throw new Error();
+    store.data.manager_departments ||= [];
     dataSchema.parse(store.data);
     store.data.shift_assignments.forEach((a: Assignment) =>
       operationSchema.parse({ ...a, kind: "update" }),
     );
+    const before = JSON.stringify(store);
+    upgradeDemo(store);
+    if (JSON.stringify(store) !== before) write(store);
     return store;
   } catch {
     throw new Error(
@@ -228,6 +305,8 @@ function validate(data: Data, assignments: Assignment[], version: Row) {
       throw new Error("יש לבחור מחלקה, אתר ותפקיד תואמים");
     if (duration(a) > Number(data.settings[0]?.max_shift_hours ?? 12))
       throw new Error("המשמרת ארוכה מהמותר בהגדרות");
+    if (a.department_id !== version.department_id)
+      throw new Error("המשמרת אינה שייכת למחלקה של הסידור");
     if (!a.employee_id) continue;
     if (!data.employees.some((e) => e.id === a.employee_id && e.active))
       throw new Error("העובד אינו פעיל");
@@ -258,9 +337,7 @@ function validate(data: Data, assignments: Assignment[], version: Row) {
       if (gap < Number(data.settings[0]?.min_rest_hours ?? 0))
         throw new Error("לא נשמר זמן המנוחה המוגדר בין המשמרות");
     }
-    const windows = data.availability.filter(
-      (w) => w.employee_id === a.employee_id,
-    );
+    const windows = availabilityWindows(data, a.employee_id, a.starts_at);
     if (
       windows.some(
         (w) =>
@@ -391,6 +468,7 @@ export async function demoCommand(
         "restore",
       ]),
       week: z.iso.date().optional(),
+      department_id: z.uuid().optional(),
       revision: z.number().int().optional(),
       active_id: z.uuid().nullable().optional(),
       active_revision: z.number().int().nullable().optional(),
@@ -405,10 +483,15 @@ export async function demoCommand(
       (v) => v.id === input.id && v.week_start === input.week,
     );
     const active = data.schedule_versions.find(
-      (v) => v.week_start === input.week && v.status !== "archived",
+      (v) =>
+        v.week_start === input.week &&
+        v.department_id === (input.department_id || data.departments[0]?.id) &&
+        v.status !== "archived",
     );
     if (
       !version ||
+      version.department_id !==
+        (input.department_id || data.departments[0]?.id) ||
       version.revision !== input.revision ||
       (active?.id || null) !== input.active_id ||
       (active ? Number(active.revision) : null) !== input.active_revision
@@ -454,15 +537,27 @@ export async function demoCommand(
     )
       throw new Error("יש לבחור תחילת שבוע תקינה");
     let version = data.schedule_versions.find(
-      (v) => v.week_start === input.week && v.status !== "archived",
+      (v) =>
+        v.week_start === input.week &&
+        v.department_id === (input.department_id || data.departments[0]?.id) &&
+        v.status !== "archived",
     );
     if (version?.status === "archived")
       throw new Error("יש לשחזר את הסידור מסל המחזור תחילה");
+    if (
+      !data.departments.some(
+        (d) =>
+          d.id === (input.department_id || data.departments[0]?.id) &&
+          d.active !== false,
+      )
+    )
+      throw new Error("המחלקה מושבתת או לא קיימת");
     if (input.action === "create") {
       if (!version) {
         version = {
           id: uid(),
           week_start: input.week,
+          department_id: input.department_id || data.departments[0]?.id,
           status: "draft",
           revision: 0,
           created_at: new Date().toISOString(),
@@ -517,6 +612,8 @@ export async function demoCommand(
               id: op.kind === "create" ? uid() : op.id,
               version_id: version.id,
             } as Assignment);
+      if (after && after.department_id !== version.department_id)
+        throw new Error("המשמרת אינה שייכת למחלקה של הסידור");
       changes.push({ before: before || null, after });
     }
     validate(data, apply(data.shift_assignments, changes), version);

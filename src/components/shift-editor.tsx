@@ -17,6 +17,7 @@ const clock = (value: string) =>
   }).format(new Date(value));
 export default function ShiftEditor({
   data,
+  departmentId,
   shift,
   week,
   date,
@@ -25,6 +26,7 @@ export default function ShiftEditor({
   onCopy,
 }: {
   data: Data;
+  departmentId: string;
   shift: Assignment | true;
   week: string;
   date: string;
@@ -34,7 +36,7 @@ export default function ShiftEditor({
 }) {
   const original = shift === true ? null : shift;
   const [department, setDepartment] = useState(
-    original?.department_id || data.departments[0]?.id || "",
+    original?.department_id || departmentId,
   );
   const [site, setSite] = useState(
     original?.site_id || data.sites[0]?.id || "",
@@ -47,10 +49,23 @@ export default function ShiftEditor({
   const [day, setDay] = useState(
     original ? localDate(original.starts_at) : date,
   );
-  const [start, setStart] = useState(
-    original ? clock(original.starts_at) : "07:00",
+  const templates = data.shift_templates.filter(
+    (t) =>
+      t.department_id === department &&
+      t.confirmed &&
+      t.start_time &&
+      t.end_time,
   );
-  const [end, setEnd] = useState(original ? clock(original.ends_at) : "15:00");
+  const [start, setStart] = useState(
+    original
+      ? clock(original.starts_at)
+      : String(templates[0]?.start_time || "").slice(0, 5),
+  );
+  const [end, setEnd] = useState(
+    original
+      ? clock(original.ends_at)
+      : String(templates[0]?.end_time || "").slice(0, 5),
+  );
   const [employee, setEmployee] = useState(original?.employee_id || "");
   const [busy, setBusy] = useState(false),
     [error, setError] = useState("");
@@ -92,33 +107,43 @@ export default function ShiftEditor({
       }}
     >
       <div className="shift-presets" aria-label="שעות מהירות">
-        {[
-          ["בוקר", "07:00", "15:00"],
-          ["ערב", "15:00", "23:00"],
-          ["לילה", "23:00", "07:00"],
-        ].map(([label, from, to]) => (
-          <button
-            type="button"
-            key={label}
-            className={start === from && end === to ? "selected" : ""}
-            onClick={() => {
-              setStart(from);
-              setEnd(to);
-            }}
-          >
-            {label}
-            <small dir="ltr">
-              {from}–{to}
-            </small>
-          </button>
-        ))}
+        {templates
+          .map((t) => [
+            String(t.name),
+            String(t.start_time).slice(0, 5),
+            String(t.end_time).slice(0, 5),
+            t.id,
+          ])
+          .map(([label, from, to, id]) => (
+            <button
+              type="button"
+              key={id}
+              className={start === from && end === to ? "selected" : ""}
+              onClick={() => {
+                setStart(from);
+                setEnd(to);
+              }}
+            >
+              {label}
+              <small dir="ltr">
+                {from}–{to}
+              </small>
+            </button>
+          ))}
       </div>
+      {!templates.length && (
+        <p className="muted">
+          שעות המחלקה טרם הוגדרו. הזינו שעות מפורשות למשמרת זו, או הגדירו תבניות
+          בהגדרות. אין העתקת שעות ממחלקה אחרת.
+        </p>
+      )}
       <div className="form-grid">
         <label>
           מחלקה
           <select
             aria-label="מחלקה"
             value={department}
+            disabled
             required
             onChange={(e) => {
               setDepartment(e.target.value);
@@ -129,11 +154,13 @@ export default function ShiftEditor({
               setEmployee("");
             }}
           >
-            {data.departments.map((d) => (
-              <option key={d.id} value={d.id}>
-                {String(d.name)}
-              </option>
-            ))}
+            {data.departments
+              .filter((d) => d.id === department)
+              .map((d) => (
+                <option key={d.id} value={d.id}>
+                  {String(d.name)}
+                </option>
+              ))}
           </select>
         </label>
         <label>
@@ -208,6 +235,7 @@ export default function ShiftEditor({
         מי עובד במשמרת?
         <select
           aria-label="עובד במשמרת"
+          disabled={!candidate}
           value={employee}
           onChange={(e) => setEmployee(e.target.value)}
         >

@@ -32,17 +32,18 @@ test("organization: direct save, undo copied shift, publish, archive and restore
   // No draft exists: saving first shift creates the draft and previews atomically scoped changes.
   await page.getByRole("button", { name: "הוספת משמרת", exact: true }).click();
   const shift = page.getByRole("dialog");
-  await shift
-    .getByLabel("מחלקה", { exact: true })
-    .selectOption({ label: "סיירים" });
+  await expect(shift.getByLabel("מחלקה", { exact: true })).toBeDisabled();
+  await expect(
+    shift.getByLabel("מחלקה", { exact: true }).locator("option:checked"),
+  ).toHaveText("סיירים");
   await shift
     .getByLabel("תפקיד", { exact: true })
     .selectOption({ label: "סיירים" });
+  await shift.getByLabel("התחלה", { exact: true }).fill("23:00");
+  await shift.getByLabel("סיום", { exact: true }).fill("07:00");
   await shift
     .getByLabel("עובד במשמרת")
     .selectOption({ label: "עובד בדיקה פיקטיבי" });
-  await shift.getByLabel("התחלה", { exact: true }).fill("23:00");
-  await shift.getByLabel("סיום", { exact: true }).fill("07:00");
   await shift.getByRole("button", { name: "שמירת משמרת", exact: true }).click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
   await expect(page.locator(".shift")).toHaveCount(1);
@@ -70,6 +71,14 @@ test("organization: direct save, undo copied shift, publish, archive and restore
     page.getByRole("button", { name: "יצירת סידור חדש", exact: true }),
   ).toBeVisible();
   await page.getByRole("button", { name: "הוספת משמרת", exact: true }).click();
+  await page
+    .getByRole("dialog")
+    .getByLabel("התחלה", { exact: true })
+    .fill("08:00");
+  await page
+    .getByRole("dialog")
+    .getByLabel("סיום", { exact: true })
+    .fill("16:00");
   await page
     .getByRole("dialog")
     .getByRole("button", { name: "שמירת משמרת", exact: true })

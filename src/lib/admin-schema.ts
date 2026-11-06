@@ -9,7 +9,11 @@ export const adminSchema = z.discriminatedUnion("kind", [
   }),
   z.object({
     kind: z.literal("department"),
-    data: z.object({ ...base, color: z.string().regex(/^#[0-9a-fA-F]{6}$/) }),
+    data: z.object({
+      ...base,
+      active: z.boolean().optional(),
+      color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+    }),
   }),
   z.object({ kind: z.literal("site"), data: z.object(base) }),
   z.object({

@@ -1,5 +1,6 @@
 import {
   addDays,
+  availabilityWindows,
   duration,
   interval,
   localDate,
@@ -26,7 +27,7 @@ export function canAssign(
     )
   )
     return false;
-  const windows = data.availability.filter((w) => w.employee_id === employeeId);
+  const windows = availabilityWindows(data, employeeId, shift.starts_at);
   if (
     windows.some(
       (w) =>
@@ -67,9 +68,14 @@ export function planWeek(
   data: Data,
   week: string,
   mode: "generate" | "fill" | "open",
+  departmentId = data.departments[0]?.id,
 ) {
+  const scope = (id: unknown) => !departmentId || id === departmentId;
   const version = data.schedule_versions.find(
-    (v) => v.week_start === week && v.status !== "archived",
+    (v) =>
+      v.week_start === week &&
+      v.status !== "archived" &&
+      scope(v.department_id),
   );
   if (version && version.status !== "draft")
     throw new Error(
@@ -112,8 +118,10 @@ export function planWeek(
       const previous = requirements.get(key);
       requirements.set(key, { shift, count: (previous?.count || 0) + count });
     };
-    if (data.coverage_requirements.length) {
-      for (const r of data.coverage_requirements)
+    if (data.coverage_requirements.some((r) => scope(r.department_id))) {
+      for (const r of data.coverage_requirements.filter((r) =>
+        scope(r.department_id),
+      ))
         add(
           String(r.department_id),
           String(r.site_id),
@@ -126,7 +134,13 @@ export function planWeek(
     } else {
       if (!data.sites.length || !data.roles.length)
         throw new Error("יש להוסיף אתר ותפקיד לפני יצירת שבוע");
-      for (const role of data.roles) {
+      for (const role of data.roles.filter(
+        (r) =>
+          scope(r.department_id) &&
+          data.departments.some(
+            (d) => d.id === r.department_id && d.active !== false,
+          ),
+      )) {
         const templates = data.shift_templates.filter(
           (t) =>
             t.department_id === role.department_id &&
@@ -134,9 +148,7 @@ export function planWeek(
             t.start_time &&
             t.end_time,
         );
-        const hours = templates.length
-          ? templates
-          : [{ start_time: "07:00", end_time: "15:00" }];
+        const hours = templates;
         for (let day = 0; day < 7; day++)
           for (const t of hours)
             add(
@@ -150,6 +162,8 @@ export function planWeek(
             );
       }
     }
+    if (!requirements.size)
+      throw new Error("יש להגדיר ולאמת שעות משמרת למחלקה לפני יצירת סידור");
     for (const { shift, count } of requirements.values()) {
       const found = existing.filter(
         (a) =>
@@ -212,16 +226,27 @@ export function planWeek(
   return operations;
 }
 
-export function copyPreviousWeek(data: Data, week: string): Operation[] {
+export function copyPreviousWeek(
+  data: Data,
+  week: string,
+  departmentId = data.departments[0]?.id,
+): Operation[] {
+  const scope = (id: unknown) => !departmentId || id === departmentId;
   const target = data.schedule_versions.find(
-    (v) => v.week_start === week && v.status !== "archived",
+    (v) =>
+      v.week_start === week &&
+      v.status !== "archived" &&
+      scope(v.department_id),
   );
   if (target && target.status !== "draft")
     throw new Error("יש לפתוח את הסידור לעריכה תחילה");
   if (data.shift_assignments.some((a) => a.version_id === target?.id))
     throw new Error("העתקה אפשרית לשבוע ריק בלבד. הסידור הקיים לא השתנה");
   const source = data.schedule_versions.find(
-    (v) => v.week_start === addDays(week, -7) && v.status !== "archived",
+    (v) =>
+      v.week_start === addDays(week, -7) &&
+      v.status !== "archived" &&
+      scope(v.department_id),
   );
   const shifts = data.shift_assignments
     .filter((a) => a.version_id === source?.id)

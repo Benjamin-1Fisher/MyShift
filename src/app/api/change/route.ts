@@ -9,6 +9,7 @@ const schema = z.discriminatedUnion("action", [
     active_id: z.uuid().nullable(),
     active_revision: z.number().int().min(0).nullable(),
     week: z.iso.date(),
+    department_id: z.uuid(),
     revision: z.number().int().min(0),
   }),
   z.object({
@@ -20,6 +21,7 @@ const schema = z.discriminatedUnion("action", [
   z.object({
     action: z.enum(["create", "publish", "reopen"]),
     week: z.iso.date(),
+    department_id: z.uuid(),
   }),
 ]);
 export async function POST(req: Request) {
@@ -46,8 +48,9 @@ export async function POST(req: Request) {
                 input.action === "confirm" ? "confirm_change" : "cancel_change",
                 { rid: input.id },
               )
-            : await client.rpc("schedule_action", {
+            : await client.rpc("department_schedule_action", {
                 week: input.week,
+                department: input.department_id,
                 action: input.action,
               });
     if (result.error)
@@ -55,7 +58,7 @@ export async function POST(req: Request) {
         {
           error:
             result.error.code === "PGRST202"
-              ? "מחיקה ושחזור עדיין לא הופעלו במערכת הארגון. יש לפנות למנהל המערכת"
+              ? "ניהול המחלקות עדיין לא הופעל במערכת הארגון. יש לפנות למנהל המערכת"
               : result.error.message,
         },
         { status: 400 },

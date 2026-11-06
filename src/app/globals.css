@@ -1823,3 +1823,132 @@ summary {
   padding: 9px 0;
   border-top: 1px solid var(--line);
 }
+
+/* Department context stays visible; a week always belongs to one department. */
+.department-picker {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+.department-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 8px 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+.department-tabs button {
+  flex: 1 1 100px;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  border-radius: 8px 8px 0 0;
+  padding: 14px 16px;
+  font-weight: 700;
+  background: transparent;
+}
+.department-tabs [aria-selected="true"] {
+  color: #463877;
+  background: #f5f3fc;
+}
+.department-context {
+  display: flex;
+  gap: 10px 20px;
+  flex-wrap: wrap;
+  align-items: center;
+  padding: 12px 18px;
+  font-size: 12px;
+  color: #65748b;
+}
+.department-context strong {
+  color: var(--ink);
+  font-size: 14px;
+}
+.staffing-warning {
+  background: #fff7e9;
+  border: 1px solid #ead3a8;
+  color: #805516;
+  padding: 12px 16px;
+  border-radius: 10px;
+}
+.employee-filters {
+  padding: 14px 0;
+}
+.employee-filters label {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  flex: 1;
+  min-width: 140px;
+}
+.week-grid {
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  min-width: 0;
+}
+.day-column,
+.day-shifts,
+.shift {
+  min-width: 0;
+}
+.day-shifts {
+  padding: 8px;
+}
+.shift-group h3 {
+  font-size: 11px;
+  font-weight: 600;
+  color: #58667d;
+  display: flex;
+  justify-content: space-between;
+  gap: 4px;
+  margin: 12px 0 8px;
+}
+.shift-group .shift {
+  margin: 0 0 8px;
+  padding: 5px;
+  border-radius: 8px;
+}
+.shift-main strong {
+  font-size: 12px;
+  margin: 5px 0;
+  overflow-wrap: anywhere;
+}
+.shift-main small {
+  font-size: 10px;
+}
+.shift > select {
+  font-size: 11px;
+  padding: 7px 2px;
+  margin-top: 2px;
+}
+@media (max-width: 760px) {
+  .department-tabs button {
+    flex-basis: calc(50% - 4px);
+    padding: 12px 8px;
+  }
+  .department-context {
+    gap: 8px;
+    padding: 12px;
+  }
+  .week-grid {
+    grid-template-columns: 1fr;
+  }
+  .day-shifts {
+    display: block;
+  }
+  .shift-group {
+    display: grid;
+    gap: 8px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .shift-group h3 {
+    grid-column: 1/-1;
+    margin: 8px 0 0;
+  }
+  .shift-group .shift {
+    margin: 0;
+  }
+  .employee-filters label {
+    min-width: 100%;
+  }
+}

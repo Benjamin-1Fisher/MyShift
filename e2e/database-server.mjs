@@ -28,6 +28,7 @@ let queue = Promise.resolve();
 const tables = new Set([
   "profiles",
   "departments",
+  "manager_departments",
   "sites",
   "roles",
   "employees",
@@ -46,6 +47,7 @@ const functions = {
   save_employee: ["data"],
   initialize_workspace: ["site_name"],
   schedule_action: ["week", "action"],
+  department_schedule_action: ["week", "action", "department"],
   schedule_lifecycle: ["week", "action", "expected_revision"],
   schedule_recover: [
     "vid",

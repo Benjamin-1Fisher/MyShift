@@ -8,7 +8,7 @@ it("builds an entire open week, preserves data and assigns only eligible workers
     next = addDays(week, 7),
     before = JSON.stringify(data);
   const open = planWeek(data, next, "open");
-  expect(open).toHaveLength(21);
+  expect(open).toHaveLength(7);
   expect(
     open.every((op) => op.kind === "create" && op.employee_id === null),
   ).toBe(true);
@@ -33,10 +33,11 @@ it("keeps unfillable slots open, and generation is idempotent", () => {
   expect(planWeek(data, week, "generate")).toEqual([]);
   const next = addDays(week, 7),
     ops = planWeek(data, next, "generate");
-  expect(ops).toHaveLength(21);
+  expect(ops).toHaveLength(7);
   expect(ops.every((op) => op.kind === "create" && !op.employee_id)).toBe(true);
   data.schedule_versions.push({
     id: "new",
+    department_id: data.departments[0].id,
     week_start: next,
     status: "draft",
     revision: 0,
@@ -51,9 +52,9 @@ it("keeps unfillable slots open, and generation is idempotent", () => {
 it("copy never overwrites an existing week or reads a discarded source", () => {
   const data = seedDemo().data,
     week = String(data.schedule_versions[0].week_start);
-  expect(copyPreviousWeek(data, addDays(week, 7))).toHaveLength(21);
+  expect(copyPreviousWeek(data, addDays(week, 7))).toHaveLength(7);
   expect(() => copyPreviousWeek(data, week)).toThrow(/ריק/);
   data.schedule_versions[0].status = "archived";
   expect(() => copyPreviousWeek(data, addDays(week, 7))).toThrow(/אין סידור/);
-  expect(planWeek(data, week, "generate")).toHaveLength(21);
+  expect(planWeek(data, week, "generate")).toHaveLength(7);
 });

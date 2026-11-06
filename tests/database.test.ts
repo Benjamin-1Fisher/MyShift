@@ -16,6 +16,21 @@ async function q<T>(sql: string, params: unknown[] = []) {
   return (await db.query<T>(sql, params)).rows;
 }
 async function rpc(fn: string, params: unknown[]) {
+  if (fn === "schedule_action") {
+    fn = "department_schedule_action";
+    params = [...params, dep];
+  }
+  if (fn === "schedule_lifecycle") {
+    const action = params[1];
+    fn = "schedule_recover";
+    params = [
+      version,
+      action,
+      params[2],
+      action === "archive" ? version : null,
+      action === "archive" ? params[2] : null,
+    ];
+  }
   return (
     await q<{ r: unknown }>(
       `select ${fn}(${params.map((_, i) => "$" + (i + 1)).join(",")}) as r`,
@@ -55,6 +70,9 @@ beforeAll(async () => {
   );
   await db.exec(
     readFileSync("supabase/migrations/005_create_after_archive.sql", "utf8"),
+  );
+  await db.exec(
+    readFileSync("supabase/migrations/006_department_schedules.sql", "utf8"),
   );
   await db.query("insert into auth.users(id) values($1),($2),($3)", [
     admin,
@@ -126,9 +144,14 @@ it("preview rolls back assignment and audit; confirm commits once", async () => 
   await expect(rpc("confirm_change", [r.id])).rejects.toThrow();
 });
 it("rejects overnight overlap across departments atomically", async () => {
+  const otherVersion = await rpc("department_schedule_action", [
+    "2026-11-01",
+    "create",
+    dep2,
+  ]);
   await expect(
     rpc("preview_change", [
-      version,
+      otherVersion,
       JSON.stringify([
         op({
           department_id: dep2,
@@ -190,7 +213,7 @@ it("multi-operation validation failures roll back every row", async () => {
       version,
       JSON.stringify([
         op({ employee_id: null }),
-        op({ department_id: dep2, role_id: role, employee_id: null }),
+        op({ department_id: dep, role_id: role2, employee_id: null }),
       ]),
     ]),
   ).rejects.toThrow(/תפקיד/);
@@ -336,11 +359,11 @@ it("soft-deletes and restores a schedule without losing shifts; guards permissio
   ).toHaveLength(0);
   await expect(
     rpc("schedule_lifecycle", ["2026-11-01", "restore", rev + 1]),
-  ).rejects.toThrow(/מנהל ראשי/);
+  ).rejects.toThrow(/אין הרשאה/);
   await asUser(manager);
   await expect(
-    rpc("schedule_lifecycle", ["2026-11-01", "restore", rev + 1]),
-  ).rejects.toThrow(/מנהל ראשי/);
+    rpc("department_schedule_action", ["2026-11-01", "publish", dep2]),
+  ).rejects.toThrow(/אין הרשאה/);
   await asUser(admin);
   await expect(
     rpc("schedule_action", ["2026-11-01", "publish"]),
@@ -432,7 +455,121 @@ it("creates a fresh week after deletion and switches recovery without destroying
   ).toEqual(created);
   expect(
     await q(
-      "select * from schedule_versions where week_start='2026-11-01' and status<>'archived'",
+      "select * from schedule_versions where week_start='2026-11-01' and department_id=$1 and status<>'archived'",
+      [dep],
     ),
   ).toHaveLength(1);
+});
+
+it("department managers publish and configure only their own department; REST reads are scoped", async () => {
+  await asUser(admin);
+  const first = await rpc("department_schedule_action", [
+    "2026-11-08",
+    "create",
+    dep,
+  ]);
+  const second = await rpc("department_schedule_action", [
+    "2026-11-08",
+    "create",
+    dep2,
+  ]);
+  await asUser(manager);
+  await rpc("department_schedule_action", ["2026-11-08", "publish", dep]);
+  await expect(
+    rpc("department_schedule_action", ["2026-11-08", "publish", dep2]),
+  ).rejects.toThrow(/אין הרשאה/);
+  expect(
+    await q("select * from schedule_versions where id=$1", [second]),
+  ).toHaveLength(0);
+  expect(
+    (
+      await q<{ status: string }>(
+        "select status from schedule_versions where id=$1",
+        [first],
+      )
+    )[0].status,
+  ).toBe("published");
+  const tid = crypto.randomUUID();
+  await rpc("manage_entity", [
+    "template",
+    JSON.stringify({
+      id: tid,
+      department_id: dep,
+      name: "שעות המחלקה",
+      start_time: "22:00",
+      end_time: "06:00",
+      confirmed: true,
+    }),
+  ]);
+  await expect(
+    rpc("manage_entity", [
+      "template",
+      JSON.stringify({
+        id: tid,
+        department_id: dep2,
+        name: "עקיפה",
+        start_time: "22:00",
+        end_time: "06:00",
+        confirmed: true,
+      }),
+    ]),
+  ).rejects.toThrow(/אין הרשאה/);
+  await expect(
+    rpc("manage_entity", [
+      "coverage",
+      JSON.stringify({
+        department_id: dep2,
+        role_id: role2,
+        site_id: site,
+        weekday: 0,
+        start_time: "08:00",
+        end_time: "16:00",
+        required_count: 2,
+      }),
+    ]),
+  ).rejects.toThrow(/אין הרשאה/);
+  await asUser(admin);
+  expect(
+    (
+      await q<{ status: string }>(
+        "select status from schedule_versions where id=$1",
+        [second],
+      )
+    )[0].status,
+  ).toBe("draft");
+});
+it("employees submit their own availability without configuration or other employee privileges", async () => {
+  await asUser(worker);
+  await rpc("manage_entity", [
+    "availability",
+    JSON.stringify({
+      employee_id: employee,
+      starts_at: "2026-11-15T06:00:00Z",
+      ends_at: "2026-11-15T14:00:00Z",
+      kind: "available",
+    }),
+  ]);
+  await expect(
+    rpc("manage_entity", [
+      "template",
+      JSON.stringify({
+        department_id: dep,
+        name: "אסור",
+        start_time: "06:00",
+        end_time: "14:00",
+        confirmed: true,
+      }),
+    ]),
+  ).rejects.toThrow(/אין הרשאה/);
+  await expect(
+    rpc("manage_entity", [
+      "availability",
+      JSON.stringify({
+        employee_id: crypto.randomUUID(),
+        starts_at: "2026-11-15T06:00:00Z",
+        ends_at: "2026-11-15T14:00:00Z",
+        kind: "leave",
+      }),
+    ]),
+  ).rejects.toThrow(/אין הרשאה/);
 });

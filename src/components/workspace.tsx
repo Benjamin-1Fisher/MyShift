@@ -256,12 +256,15 @@ export default function Workspace({
     [menu, setMenu] = useState(false),
     [filter, setFilter] = useState(""),
     [employeeFilter, setEmployeeFilter] = useState(""),
+    [roleFilter, setRoleFilter] = useState(""),
+    [availabilityFilter, setAvailabilityFilter] = useState(""),
     [siteFilter, setSiteFilter] = useState(""),
     [view, setView] = useState("week"),
     [search, setSearch] = useState("");
   const [shiftDate, setShiftDate] = useState("");
   const [lastUndo, setLastUndo] = useState<{
     week: string;
+    department_id: string;
     revision: number;
     operations: Operation[];
   } | null>(null);
@@ -278,6 +281,9 @@ export default function Workspace({
     [importRows, setImportRows] = useState<Record<string, string>[]>([]),
     [mapping, setMapping] = useState<Record<string, string>>({});
   const load = useCallback(async () => {
+    setFilter(
+      new URLSearchParams(window.location.search).get("department") || "",
+    );
     if (demo) {
       const { loadDemo, DEMO_ADMIN } = await import("@/lib/demo");
       const saved = loadDemo();
@@ -361,8 +367,83 @@ export default function Workspace({
       : data.profiles.find((p) => p.id === userId),
     isAdmin = profile?.role === "admin",
     canEdit = !!profile && profile.role !== "employee";
+  const departments = data.departments.filter(
+    (d) =>
+      d.active !== false &&
+      (isAdmin ||
+        (canEdit
+          ? data.manager_departments.some(
+              (m) => m.user_id === userId && m.department_id === d.id,
+            )
+          : data.employee_departments.some(
+              (m) =>
+                m.department_id === d.id &&
+                data.employees.some(
+                  (e) =>
+                    e.id === m.employee_id &&
+                    (demoEmployee
+                      ? e.id === demoEmployee
+                      : e.user_id === userId),
+                ),
+            ))),
+  );
+  const departmentId = departments.some((d) => d.id === filter)
+    ? filter
+    : departments[0]?.id || "";
+  const departmentEmployees = data.employees.filter((e) =>
+    data.employee_departments.some(
+      (m) => m.employee_id === e.id && m.department_id === departmentId,
+    ),
+  );
+  const submitted = (id: string) =>
+    data.availability.some(
+      (a) =>
+        a.employee_id === id &&
+        String(a.starts_at) < addDays(week, 7) &&
+        String(a.ends_at) > week,
+    );
+  const visibleEmployees = departmentEmployees.filter(
+    (e) =>
+      String(e.name).includes(search) &&
+      (!roleFilter ||
+        data.employee_departments.some(
+          (m) =>
+            m.employee_id === e.id &&
+            m.department_id === departmentId &&
+            m.role_id === roleFilter,
+        )) &&
+      (!siteFilter ||
+        data.shift_assignments.some(
+          (a) =>
+            a.employee_id === e.id &&
+            a.site_id === siteFilter &&
+            localDate(a.starts_at) >= week &&
+            localDate(a.starts_at) <= addDays(week, 6),
+        )) &&
+      (!availabilityFilter ||
+        submitted(e.id) === (availabilityFilter === "submitted")),
+  );
+  const selectDepartment = (id: string) => {
+    setFilter(id);
+    setNotice("");
+    setError("");
+    const url = new URL(window.location.href);
+    url.searchParams.set("department", id);
+    window.history.replaceState(null, "", url);
+    setEmployeeFilter("");
+    setRoleFilter("");
+    setSiteFilter("");
+    setAvailabilityFilter("");
+    setLastUndo(null);
+    setEditor(null);
+  };
   const archivedSchedules = data.schedule_versions
-    .filter((v) => v.week_start === week && v.status === "archived")
+    .filter(
+      (v) =>
+        v.week_start === week &&
+        v.department_id === departmentId &&
+        v.status === "archived",
+    )
     .sort(
       (a, b) =>
         Date.parse(String(a.archived_at || a.created_at || "1970-01-01")) -
@@ -370,18 +451,46 @@ export default function Workspace({
     );
   const archived = archivedSchedules.at(-1);
   const version = data.schedule_versions.find(
-    (v) => v.week_start === week && v.status !== "archived",
+    (v) =>
+      v.week_start === week &&
+      v.department_id === departmentId &&
+      v.status !== "archived",
+  );
+  const weekAssigned = displayData.shift_assignments.filter((a) =>
+    data.schedule_versions.some(
+      (v) =>
+        v.id === a.version_id &&
+        v.week_start === week &&
+        v.status !== "archived",
+    ),
+  );
+  const dashboardGaps = shortages(
+    { ...data, shift_assignments: weekAssigned },
+    week,
   );
   const assigned = displayData.shift_assignments.filter(
     (a) => a.version_id === version?.id,
   );
   const filtered = assigned.filter(
     (a) =>
-      (!filter || a.department_id === filter) &&
+      a.department_id === departmentId &&
       (!employeeFilter || a.employee_id === employeeFilter) &&
-      (!siteFilter || a.site_id === siteFilter),
+      (!siteFilter || a.site_id === siteFilter) &&
+      (!roleFilter || a.role_id === roleFilter),
   );
-  const gaps = shortages({ ...data, shift_assignments: assigned }, week);
+  const conflicts = assigned.filter(
+    (a) => a.employee_id && !canAssign(data, a, a.employee_id),
+  );
+  const gaps = shortages(
+    {
+      ...data,
+      coverage_requirements: data.coverage_requirements.filter(
+        (r) => r.department_id === departmentId,
+      ),
+      shift_assignments: assigned,
+    },
+    week,
+  );
   const name = (table: keyof Data, id: unknown) =>
     String((data[table] as Row[]).find((r) => r.id === id)?.name || "לא משויך");
   const run = async (fn: () => Promise<void>) => {
@@ -407,7 +516,12 @@ export default function Workspace({
       return;
     }
     const vid =
-      version?.id || (await post("/api/change", { action: "create", week }));
+      version?.id ||
+      (await post("/api/change", {
+        action: "create",
+        week,
+        department_id: departmentId,
+      }));
     const proposed = await post("/api/change", {
       action: "preview",
       version: vid,
@@ -424,6 +538,7 @@ export default function Workspace({
     if (remember && Array.isArray(changes))
       setLastUndo({
         week,
+        department_id: departmentId,
         revision: expectedRevision + 1,
         operations: changes
           .slice()
@@ -453,6 +568,7 @@ export default function Workspace({
     await post("/api/change", {
       action,
       week,
+      department_id: departmentId,
       id: current.id,
       active_id: version?.id || null,
       active_revision: version ? Number(version.revision) : null,
@@ -470,7 +586,12 @@ export default function Workspace({
   };
   const propose = async (operations: Operation[]) => {
     const vid =
-      version?.id || (await post("/api/change", { action: "create", week }));
+      version?.id ||
+      (await post("/api/change", {
+        action: "create",
+        week,
+        department_id: departmentId,
+      }));
     if (!version) await load();
     setPreview(
       await post("/api/change", {
@@ -486,7 +607,7 @@ export default function Workspace({
     options: Row[],
     required = true,
   ): Field => ({ key, label, options, required });
-  const dep = selectField("department_id", "מחלקה", data.departments),
+  const dep = selectField("department_id", "מחלקה", departments),
     emp = selectField("employee_id", "עובד", data.employees),
     site = selectField("site_id", "אתר", data.sites),
     role: Field = {
@@ -504,6 +625,7 @@ export default function Workspace({
       title,
       fields,
       initial: {
+        department_id: departmentId,
         ...(kind === "employee" && !initial?.id ? { active: "true" } : {}),
         ...Object.fromEntries(
           fields
@@ -529,6 +651,7 @@ export default function Workspace({
     }
     const v: Record<string, unknown> = { ...values };
     if (entity.initial?.id) v.id = entity.initial.id;
+    if (entity.kind === "department") v.active = values.active !== "false";
     if (entity.kind === "employee") {
       v.active = values.active !== "false";
       v.user_id = values.user_id || null;
@@ -561,6 +684,8 @@ export default function Workspace({
         .map((s) => s.trim())
         .filter(Boolean);
     await post("/api/admin", { kind: entity.kind, data: v });
+    if (entity.kind === "employee" && values.department_id)
+      selectDepartment(values.department_id);
     setEntity(null);
     await load();
     setNotice(
@@ -600,7 +725,13 @@ export default function Workspace({
         .concat(preview.changes.flatMap((c) => (c.after ? [c.after] : [])))
     : assigned;
   const previewGaps = shortages(
-    { ...data, shift_assignments: previewAssignments },
+    {
+      ...data,
+      coverage_requirements: data.coverage_requirements.filter(
+        (r) => r.department_id === departmentId,
+      ),
+      shift_assignments: previewAssignments,
+    },
     week,
   );
   const renderCard = (a: Assignment) => (
@@ -625,12 +756,11 @@ export default function Workspace({
         <strong>
           {a.employee_id ? name("employees", a.employee_id) : "משמרת פנויה"}
         </strong>
+        <small>{name("sites", a.site_id)}</small>
         <small>
-          {name("departments", a.department_id)} · {name("sites", a.site_id)}
-        </small>
-        <small>
-          {name("roles", a.role_id)}
-          {localDate(a.ends_at) !== localDate(a.starts_at) ? " · למחרת" : ""}
+          {localDate(a.ends_at) !== localDate(a.starts_at)
+            ? "מסתיימת למחרת"
+            : ""}
         </small>
       </button>
       {canEdit && version?.status === "draft" && (
@@ -909,7 +1039,11 @@ export default function Workspace({
                   disabled={busy}
                   onClick={() =>
                     void run(async () => {
-                      await post("/api/change", { action: "create", week });
+                      await post("/api/change", {
+                        action: "create",
+                        week,
+                        department_id: departmentId,
+                      });
                       setPage("schedule");
                       setNotice(
                         "הסידור השבועי נוצר. אפשר להתחיל להוסיף משמרות.",
@@ -1029,6 +1163,62 @@ export default function Workspace({
                 </button>
               </section>
             )}
+          {["schedule", "employees", "settings"].includes(page) &&
+            departments.length > 0 && (
+              <section className="department-picker" aria-label="בחירת מחלקה">
+                <div
+                  className="department-tabs"
+                  role="tablist"
+                  aria-label="מחלקות"
+                >
+                  {departments.map((d) => (
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={departmentId === d.id}
+                      aria-controls="department-content"
+                      key={d.id}
+                      onClick={() => selectDepartment(d.id)}
+                      style={{
+                        borderBottomColor:
+                          departmentId === d.id
+                            ? String(d.color)
+                            : "transparent",
+                      }}
+                    >
+                      {String(d.name)}
+                    </button>
+                  ))}
+                </div>
+                <div
+                  id="department-content"
+                  className="department-context"
+                  role="status"
+                >
+                  <strong>{name("departments", departmentId)}</strong>
+                  <span>
+                    {canEdit ? "ניהול המחלקה" : "המחלקה שלי"} ·{" "}
+                    {departmentEmployees.filter((e) => e.active).length} עובדים
+                  </span>
+                  {canEdit && (
+                    <span>
+                      {
+                        departmentEmployees.filter(
+                          (e) => e.active && submitted(e.id),
+                        ).length
+                      }{" "}
+                      הגישו זמינות לשבוע ·{" "}
+                      {
+                        departmentEmployees.filter(
+                          (e) => e.active && !submitted(e.id),
+                        ).length
+                      }{" "}
+                      טרם הגישו
+                    </span>
+                  )}
+                </div>
+              </section>
+            )}
           {page === "dashboard" && (
             <>
               <div className="stats">
@@ -1036,7 +1226,7 @@ export default function Workspace({
                   [
                     CalendarDays,
                     "משמרות השבוע",
-                    assigned.length,
+                    weekAssigned.length,
                     "בסידור הנבחר",
                   ],
                   [
@@ -1048,13 +1238,13 @@ export default function Workspace({
                   [
                     Clock,
                     "משמרות פתוחות",
-                    assigned.filter((a) => !a.employee_id).length,
+                    weekAssigned.filter((a) => !a.employee_id).length,
                     "ממתינות לשיבוץ",
                   ],
                   [
                     ShieldCheck,
                     "פערי איוש",
-                    gaps.reduce((s, g) => s + g.missing, 0),
+                    dashboardGaps.reduce((s, g) => s + g.missing, 0),
                     "לפי הדרישות שהוגדרו",
                   ],
                 ].map(([Icon, label, note, sub], i) => {
@@ -1094,7 +1284,7 @@ export default function Workspace({
                   ) : (
                     <div className="department-grid">
                       {data.departments.map((d) => {
-                        const shifts = assigned.filter(
+                        const shifts = weekAssigned.filter(
                           (a) => a.department_id === d.id,
                         );
                         return (
@@ -1102,7 +1292,7 @@ export default function Workspace({
                             className="department-card"
                             key={d.id}
                             onClick={() => {
-                              setFilter(d.id);
+                              selectDepartment(d.id);
                               setPage("schedule");
                             }}
                           >
@@ -1155,10 +1345,10 @@ export default function Workspace({
               <section className="panel">
                 <div className="section-heading">
                   <h2>תשומת לב לשבוע הקרוב</h2>
-                  <span className="badge">{gaps.length} פערים</span>
+                  <span className="badge">{dashboardGaps.length} פערים</span>
                 </div>
-                {gaps.length ? (
-                  gaps.map((g, i) => (
+                {dashboardGaps.length ? (
+                  dashboardGaps.map((g, i) => (
                     <div className="list-row" key={i}>
                       <span className="warning-icon">
                         <Clock size={18} />
@@ -1201,7 +1391,9 @@ export default function Workspace({
               {canEdit && (
                 <section className="planner-actions" aria-label="ניהול הסידור">
                   <div>
-                    <strong>השבוע שלך, בשליטה</strong>
+                    <strong>
+                      {name("departments", departmentId)} · סידור שבועי
+                    </strong>
                     <p>
                       {assigned.length} משמרות ·{" "}
                       {assigned.filter((a) => !a.employee_id).length} פנויות
@@ -1216,7 +1408,9 @@ export default function Workspace({
                           disabled={busy}
                           onClick={() =>
                             void run(() =>
-                              commitChanges(planWeek(data, week, "generate")),
+                              commitChanges(
+                                planWeek(data, week, "generate", departmentId),
+                              ),
                             )
                           }
                         >
@@ -1228,7 +1422,9 @@ export default function Workspace({
                           }
                           onClick={() =>
                             void run(() =>
-                              commitChanges(planWeek(data, week, "fill")),
+                              commitChanges(
+                                planWeek(data, week, "fill", departmentId),
+                              ),
                             )
                           }
                         >
@@ -1236,7 +1432,7 @@ export default function Workspace({
                         </button>
                       </>
                     )}
-                    {isAdmin && version && (
+                    {canEdit && version && (
                       <button
                         className={
                           version.status === "published" ? "" : "primary"
@@ -1250,6 +1446,7 @@ export default function Workspace({
                                   ? "reopen"
                                   : "publish",
                               week,
+                              department_id: departmentId,
                             });
                             setLastUndo(null);
                             setNotice(
@@ -1265,7 +1462,7 @@ export default function Workspace({
                           : "פרסום סידור"}
                       </button>
                     )}
-                    {isAdmin && version && (
+                    {canEdit && version && (
                       <button
                         disabled={busy}
                         onClick={() => setArchivePrompt(true)}
@@ -1273,7 +1470,7 @@ export default function Workspace({
                         מחיקת סידור
                       </button>
                     )}
-                    {isAdmin && archived && !version && (
+                    {canEdit && archived && !version && (
                       <button
                         className="primary"
                         disabled={busy}
@@ -1282,24 +1479,26 @@ export default function Workspace({
                         שחזור סידור
                       </button>
                     )}
-                    {lastUndo?.week === week && version?.status === "draft" && (
-                      <button
-                        disabled={busy}
-                        onClick={() =>
-                          void run(async () => {
-                            await commitChanges(
-                              lastUndo.operations,
-                              false,
-                              lastUndo.revision,
-                            );
-                            setLastUndo(null);
-                            setNotice("הפעולה האחרונה בוטלה");
-                          })
-                        }
-                      >
-                        ביטול הפעולה האחרונה
-                      </button>
-                    )}
+                    {lastUndo?.week === week &&
+                      lastUndo.department_id === departmentId &&
+                      version?.status === "draft" && (
+                        <button
+                          disabled={busy}
+                          onClick={() =>
+                            void run(async () => {
+                              await commitChanges(
+                                lastUndo.operations,
+                                false,
+                                lastUndo.revision,
+                              );
+                              setLastUndo(null);
+                              setNotice("הפעולה האחרונה בוטלה");
+                            })
+                          }
+                        >
+                          ביטול הפעולה האחרונה
+                        </button>
+                      )}
                   </div>
                   {version?.status !== "published" && (
                     <details className="planner-more">
@@ -1329,7 +1528,9 @@ export default function Workspace({
                           disabled={busy}
                           onClick={() =>
                             void run(() =>
-                              commitChanges(planWeek(data, week, "open")),
+                              commitChanges(
+                                planWeek(data, week, "open", departmentId),
+                              ),
                             )
                           }
                         >
@@ -1339,7 +1540,9 @@ export default function Workspace({
                           disabled={busy || !!assigned.length}
                           onClick={() =>
                             void run(() =>
-                              commitChanges(copyPreviousWeek(data, week)),
+                              commitChanges(
+                                copyPreviousWeek(data, week, departmentId),
+                              ),
                             )
                           }
                         >
@@ -1348,7 +1551,7 @@ export default function Workspace({
                       </div>
                     </details>
                   )}
-                  {isAdmin && !!archivedSchedules.length && version && (
+                  {canEdit && !!archivedSchedules.length && version && (
                     <details className="planner-more">
                       <summary>
                         סידורים שנמחקו ({archivedSchedules.length})
@@ -1388,6 +1591,19 @@ export default function Workspace({
                       : "המערכת בודקת הכשרות וזמינות. כשאין עובד מתאים, המשמרת נשארת פנויה. אפשר לשנות הכול ידנית."}
                   </small>
                 </section>
+              )}
+              {!!conflicts.length && (
+                <p role="alert" className="staffing-warning">
+                  {conflicts.length} שיבוצים דורשים בדיקה עקב חפיפה, זמינות או
+                  הכשרה. יש לערוך את המשמרות לפני פרסום.
+                </p>
+              )}
+              {!!gaps.length && (
+                <p role="status" className="staffing-warning">
+                  פערי איוש במחלקה: חסרים{" "}
+                  {gaps.reduce((n, g) => n + g.missing, 0)} שיבוצים לפי הדרישות
+                  שהוגדרו
+                </p>
               )}
               <section className="panel schedule-panel">
                 <div className="toolbar">
@@ -1468,24 +1684,12 @@ export default function Workspace({
                   <div className="toolbar filters">
                     <div className="row">
                       <select
-                        aria-label="מחלקה"
-                        value={filter}
-                        onChange={(e) => setFilter(e.target.value)}
-                      >
-                        <option value="">כל המחלקות</option>
-                        {data.departments.map((d) => (
-                          <option value={d.id} key={d.id}>
-                            {String(d.name)}
-                          </option>
-                        ))}
-                      </select>
-                      <select
                         aria-label="עובד"
                         value={employeeFilter}
                         onChange={(e) => setEmployeeFilter(e.target.value)}
                       >
                         <option value="">כל העובדים</option>
-                        {data.employees.map((d) => (
+                        {departmentEmployees.map((d) => (
                           <option value={d.id} key={d.id}>
                             {String(d.name)}
                           </option>
@@ -1563,7 +1767,9 @@ export default function Workspace({
                         disabled={busy}
                         onClick={() =>
                           void run(() =>
-                            commitChanges(planWeek(data, week, "generate")),
+                            commitChanges(
+                              planWeek(data, week, "generate", departmentId),
+                            ),
                           )
                         }
                       >
@@ -1573,7 +1779,9 @@ export default function Workspace({
                         disabled={busy}
                         onClick={() =>
                           void run(() =>
-                            commitChanges(planWeek(data, week, "open")),
+                            commitChanges(
+                              planWeek(data, week, "open", departmentId),
+                            ),
                           )
                         }
                       >
@@ -1618,12 +1826,41 @@ export default function Workspace({
                             </strong>
                           </div>
                           <div className="day-shifts">
-                            {filtered
-                              .filter((a) => localDate(a.starts_at) === day)
-                              .sort((a, b) =>
-                                a.starts_at.localeCompare(b.starts_at),
-                              )
-                              .map(renderCard)}
+                            {Array.from(
+                              new Set(
+                                filtered
+                                  .filter((a) => localDate(a.starts_at) === day)
+                                  .sort((a, b) =>
+                                    a.starts_at.localeCompare(b.starts_at),
+                                  )
+                                  .map((a) => time(a.starts_at)),
+                              ),
+                            ).map((start) => (
+                              <section className="shift-group" key={start}>
+                                <h3>
+                                  {String(
+                                    data.shift_templates.find(
+                                      (t) =>
+                                        t.department_id === departmentId &&
+                                        t.confirmed &&
+                                        String(t.start_time).slice(0, 5) ===
+                                          start,
+                                    )?.name || "שעות מותאמות",
+                                  )}{" "}
+                                  <span dir="ltr">{start}</span>
+                                </h3>
+                                {filtered
+                                  .filter(
+                                    (a) =>
+                                      localDate(a.starts_at) === day &&
+                                      time(a.starts_at) === start,
+                                  )
+                                  .sort((a, b) =>
+                                    a.starts_at.localeCompare(b.starts_at),
+                                  )
+                                  .map(renderCard)}
+                              </section>
+                            ))}
                             {canEdit && version?.status !== "published" && (
                               <button
                                 className="add-day-shift"
@@ -1668,7 +1905,7 @@ export default function Workspace({
                                     v.status === "archived",
                                 ) &&
                                 localDate(a.starts_at) === day &&
-                                (!filter || a.department_id === filter) &&
+                                a.department_id === departmentId &&
                                 (!siteFilter || a.site_id === siteFilter) &&
                                 (!employeeFilter ||
                                   a.employee_id === employeeFilter),
@@ -1678,7 +1915,7 @@ export default function Workspace({
                       ))}
                   </div>
                 ) : (
-                  data.employees
+                  departmentEmployees
                     .filter((e) => !employeeFilter || e.id === employeeFilter)
                     .map((e) => (
                       <section className="employee-schedule" key={e.id}>
@@ -1751,6 +1988,52 @@ export default function Workspace({
                   )}
                 </div>
               </div>
+              <div className="employee-filters row">
+                <label>
+                  תפקיד
+                  <select
+                    aria-label="סינון תפקיד"
+                    value={roleFilter}
+                    onChange={(e) => setRoleFilter(e.target.value)}
+                  >
+                    <option value="">כל התפקידים</option>
+                    {data.roles
+                      .filter((r) => r.department_id === departmentId)
+                      .map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {String(r.name)}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+                <label>
+                  מיקום
+                  <select
+                    aria-label="סינון מיקום"
+                    value={siteFilter}
+                    onChange={(e) => setSiteFilter(e.target.value)}
+                  >
+                    <option value="">כל המיקומים</option>
+                    {data.sites.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {String(r.name)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  הגשת זמינות
+                  <select
+                    aria-label="סינון זמינות"
+                    value={availabilityFilter}
+                    onChange={(e) => setAvailabilityFilter(e.target.value)}
+                  >
+                    <option value="">כולם</option>
+                    <option value="submitted">הגישו השבוע</option>
+                    <option value="missing">טרם הגישו</option>
+                  </select>
+                </label>
+              </div>
               <table className="employees-table">
                 <thead>
                   <tr>
@@ -1761,134 +2044,189 @@ export default function Workspace({
                   </tr>
                 </thead>
                 <tbody>
-                  {data.employees
-                    .filter((e) => String(e.name).includes(search))
-                    .map((e) => (
-                      <tr key={e.id}>
-                        <td>
-                          <span className="avatar small">
-                            {String(e.name).slice(0, 1)}
-                          </span>
-                          {String(e.name)}
-                        </td>
-                        <td>
-                          {data.employee_departments
-                            .filter((m) => m.employee_id === e.id)
-                            .map(
-                              (m) =>
-                                `${name("departments", m.department_id)} / ${name("roles", m.role_id)}`,
-                            )
-                            .join(" · ") || "טרם שויך"}
-                        </td>
-                        <td>
-                          <span className="badge">
-                            {e.active ? "פעיל" : "לא פעיל"}
-                          </span>
-                        </td>
-                        <td>
-                          {isAdmin && (
-                            <div className="row">
-                              <button
-                                onClick={() =>
-                                  openEntity(
-                                    "employee",
-                                    "עריכת עובד",
-                                    [
-                                      { key: "name", label: "שם" },
-                                      ...(!demo
-                                        ? [
-                                            {
-                                              key: "user_id",
-                                              label: "מזהה משתמש",
-                                              required: false,
-                                            },
-                                          ]
-                                        : []),
-                                      {
-                                        key: "active",
-                                        label: "מצב",
-                                        options: [
-                                          { id: "true", name: "פעיל" },
-                                          { id: "false", name: "לא פעיל" },
-                                        ],
-                                      },
-                                    ],
+                  {visibleEmployees.map((e) => (
+                    <tr key={e.id}>
+                      <td>
+                        <span className="avatar small">
+                          {String(e.name).slice(0, 1)}
+                        </span>
+                        {String(e.name)}
+                      </td>
+                      <td>
+                        {data.employee_departments
+                          .filter((m) => m.employee_id === e.id)
+                          .map(
+                            (m) =>
+                              `${name("departments", m.department_id)} / ${name("roles", m.role_id)}`,
+                          )
+                          .join(" · ") || "טרם שויך"}
+                      </td>
+                      <td>
+                        <span className="badge">
+                          {e.active ? "פעיל" : "לא פעיל"} ·{" "}
+                          {submitted(e.id)
+                            ? "הוגשה זמינות"
+                            : "טרם הוגשה זמינות"}
+                        </span>
+                      </td>
+                      <td>
+                        {!isAdmin &&
+                          (e.user_id === userId ||
+                            e.id === demoEmployee ||
+                            (canEdit &&
+                              data.employee_departments
+                                .filter((m) => m.employee_id === e.id)
+                                .every((m) =>
+                                  departments.some(
+                                    (d) => d.id === m.department_id,
+                                  ),
+                                ))) && (
+                            <button
+                              onClick={() =>
+                                openEntity(
+                                  "availability",
+                                  "הגשת זמינות ואילוצים",
+                                  [
+                                    { ...emp, options: [e] },
                                     {
-                                      id: e.id,
-                                      name: String(e.name),
-                                      active: String(e.active),
-                                      user_id: String(e.user_id || ""),
+                                      key: "start",
+                                      label: "מתאריך ושעה",
+                                      type: "datetime-local",
                                     },
-                                  )
-                                }
-                              >
-                                עריכה
-                              </button>
-                              <button
-                                onClick={() =>
-                                  openEntity(
-                                    "membership",
-                                    "שיוך והכשרה",
-                                    [emp, dep, role],
-                                    { employee_id: e.id },
-                                  )
-                                }
-                              >
-                                הכשרה
-                              </button>
-                              <button
-                                onClick={() =>
-                                  openEntity(
-                                    "availability",
-                                    "זמינות וחופשה",
-                                    [
-                                      emp,
-                                      {
-                                        key: "start",
-                                        label: "מתאריך ושעה",
-                                        type: "datetime-local",
-                                      },
-                                      {
-                                        key: "end",
-                                        label: "עד תאריך ושעה",
-                                        type: "datetime-local",
-                                      },
-                                      {
-                                        key: "kind",
-                                        label: "סוג",
-                                        options: [
-                                          {
-                                            id: "unavailable",
-                                            name: "לא זמין",
-                                          },
-                                          { id: "leave", name: "חופשה" },
-                                          { id: "available", name: "זמין" },
-                                        ],
-                                      },
-                                    ],
-                                    { employee_id: e.id },
-                                  )
-                                }
-                              >
-                                זמינות
-                              </button>
-                            </div>
+                                    {
+                                      key: "end",
+                                      label: "עד תאריך ושעה",
+                                      type: "datetime-local",
+                                    },
+                                    {
+                                      key: "kind",
+                                      label: "סוג",
+                                      options: [
+                                        { id: "available", name: "זמין" },
+                                        { id: "unavailable", name: "לא זמין" },
+                                        { id: "leave", name: "חופשה" },
+                                      ],
+                                    },
+                                  ],
+                                  { employee_id: e.id },
+                                )
+                              }
+                            >
+                              הגשת זמינות
+                            </button>
                           )}
-                        </td>
-                      </tr>
-                    ))}
+                        {isAdmin && (
+                          <div className="row">
+                            <button
+                              onClick={() =>
+                                openEntity(
+                                  "employee",
+                                  "עריכת עובד",
+                                  [
+                                    { key: "name", label: "שם" },
+                                    ...(!demo
+                                      ? [
+                                          {
+                                            key: "user_id",
+                                            label: "מזהה משתמש",
+                                            required: false,
+                                          },
+                                        ]
+                                      : []),
+                                    {
+                                      key: "active",
+                                      label: "מצב",
+                                      options: [
+                                        { id: "true", name: "פעיל" },
+                                        { id: "false", name: "לא פעיל" },
+                                      ],
+                                    },
+                                  ],
+                                  {
+                                    id: e.id,
+                                    name: String(e.name),
+                                    active: String(e.active),
+                                    user_id: String(e.user_id || ""),
+                                  },
+                                )
+                              }
+                            >
+                              עריכה
+                            </button>
+                            <button
+                              onClick={() =>
+                                openEntity(
+                                  "membership",
+                                  "שיוך והכשרה",
+                                  [emp, dep, role],
+                                  { employee_id: e.id },
+                                )
+                              }
+                            >
+                              הכשרה
+                            </button>
+                            <button
+                              onClick={() =>
+                                openEntity(
+                                  "availability",
+                                  "זמינות וחופשה",
+                                  [
+                                    emp,
+                                    {
+                                      key: "start",
+                                      label: "מתאריך ושעה",
+                                      type: "datetime-local",
+                                    },
+                                    {
+                                      key: "end",
+                                      label: "עד תאריך ושעה",
+                                      type: "datetime-local",
+                                    },
+                                    {
+                                      key: "kind",
+                                      label: "סוג",
+                                      options: [
+                                        {
+                                          id: "unavailable",
+                                          name: "לא זמין",
+                                        },
+                                        { id: "leave", name: "חופשה" },
+                                        { id: "available", name: "זמין" },
+                                      ],
+                                    },
+                                  ],
+                                  { employee_id: e.id },
+                                )
+                              }
+                            >
+                              זמינות
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
               {!data.employees.length && (
                 <Empty text="עדיין אין עובדים להצגה" />
               )}
               <h3>חלונות זמינות וחופשות</h3>
-              {data.availability.map((a) => (
-                <div className="list-row" key={a.id}>
-                  {name("employees", a.employee_id)} · {String(a.kind)} ·{" "}
-                  {String(a.starts_at)} — {String(a.ends_at)}
-                </div>
-              ))}
+              {data.availability
+                .filter((a) =>
+                  departmentEmployees.some((e) => e.id === a.employee_id),
+                )
+                .map((a) => (
+                  <div className="list-row" key={a.id}>
+                    {name("employees", a.employee_id)} ·{" "}
+                    {a.kind === "available"
+                      ? "זמין"
+                      : a.kind === "leave"
+                        ? "חופשה"
+                        : "לא זמין"}{" "}
+                    · {String(a.starts_at)} — {String(a.ends_at)}
+                  </div>
+                ))}
             </section>
           )}
           {page === "departments" && (
@@ -1938,7 +2276,10 @@ export default function Workspace({
                     <Building2 />
                   </span>
                   <div>
-                    <strong>{String(d.name)}</strong>
+                    <strong>
+                      {String(d.name)}
+                      {d.active === false ? " · מושבתת" : ""}
+                    </strong>
                     <p>
                       {data.roles
                         .filter((r) => r.department_id === d.id)
@@ -1955,11 +2296,23 @@ export default function Workspace({
                           [
                             { key: "name", label: "שם" },
                             { key: "color", label: "צבע", type: "color" },
+                            {
+                              key: "active",
+                              label: "מצב מחלקה",
+                              options: [
+                                { id: "true", name: "פעילה" },
+                                {
+                                  id: "false",
+                                  name: "מושבתת — שמירת היסטוריה",
+                                },
+                              ],
+                            },
                           ],
                           {
                             id: d.id,
                             name: String(d.name),
                             color: String(d.color),
+                            active: String(d.active !== false),
                           },
                         )
                       }
@@ -2117,38 +2470,40 @@ export default function Workspace({
               <p className="muted">
                 כללים תפעוליים לבחירת מנהל. אין כאן קביעה של דרישות חוק.
               </p>
-              {isAdmin && (
+              {canEdit && (
                 <div className="action-grid">
-                  <button
-                    onClick={() =>
-                      openEntity(
-                        "settings",
-                        "מנוחה ומשך משמרת",
-                        [
+                  {isAdmin && (
+                    <button
+                      onClick={() =>
+                        openEntity(
+                          "settings",
+                          "מנוחה ומשך משמרת",
+                          [
+                            {
+                              key: "min_rest_hours",
+                              label: "שעות מנוחה מינימליות",
+                              type: "number",
+                            },
+                            {
+                              key: "max_shift_hours",
+                              label: "משך משמרת מרבי",
+                              type: "number",
+                            },
+                          ],
                           {
-                            key: "min_rest_hours",
-                            label: "שעות מנוחה מינימליות",
-                            type: "number",
+                            min_rest_hours: String(
+                              data.settings[0]?.min_rest_hours ?? 0,
+                            ),
+                            max_shift_hours: String(
+                              data.settings[0]?.max_shift_hours ?? 24,
+                            ),
                           },
-                          {
-                            key: "max_shift_hours",
-                            label: "משך משמרת מרבי",
-                            type: "number",
-                          },
-                        ],
-                        {
-                          min_rest_hours: String(
-                            data.settings[0]?.min_rest_hours ?? 0,
-                          ),
-                          max_shift_hours: String(
-                            data.settings[0]?.max_shift_hours ?? 24,
-                          ),
-                        },
-                      )
-                    }
-                  >
-                    כללי מנוחה ושעות
-                  </button>
+                        )
+                      }
+                    >
+                      כללי מנוחה ושעות
+                    </button>
+                  )}
                   <button
                     onClick={() =>
                       openEntity("template", "תבנית משמרת חדשה", [
@@ -2205,93 +2560,138 @@ export default function Workspace({
                   >
                     דרישת איוש חדשה
                   </button>
-                  <button
-                    onClick={() =>
-                      openEntity("permission", "הרשאות משתמש", [
-                        { key: "user_id", label: "מזהה משתמש" },
-                        {
-                          key: "role",
-                          label: "הרשאה",
-                          options: [
-                            { id: "admin", name: "מנהל ראשי" },
-                            { id: "manager", name: "מנהל מחלקה" },
-                            { id: "employee", name: "עובד" },
-                          ],
-                        },
-                        {
-                          key: "department_ids",
-                          label: "מזהי מחלקות מופרדים בפסיק",
-                          required: false,
-                        },
-                      ])
-                    }
-                  >
-                    הרשאות
-                  </button>
-                </div>
-              )}
-              <h3>תבניות משמרת</h3>
-              {data.shift_templates.map((t) => (
-                <div className="list-row" key={t.id}>
-                  <strong>{String(t.name)}</strong>
-                  <span>
-                    {name("departments", t.department_id)} ·{" "}
-                    {t.confirmed
-                      ? `${t.start_time}–${t.end_time}`
-                      : "שעות לא מאומתות — אין להשתמש לשיבוץ"}
-                  </span>
                   {isAdmin && (
                     <button
                       onClick={() =>
-                        openEntity(
-                          "template",
-                          "עריכת תבנית",
-                          [
-                            dep,
-                            { key: "name", label: "שם" },
-                            {
-                              key: "start_time",
-                              label: "התחלה",
-                              type: "time",
-                              required: false,
-                            },
-                            {
-                              key: "end_time",
-                              label: "סיום",
-                              type: "time",
-                              required: false,
-                            },
-                            {
-                              key: "confirmed",
-                              label: "מאומת",
-                              options: [
-                                { id: "false", name: "לא" },
-                                { id: "true", name: "כן" },
-                              ],
-                            },
-                          ],
-                          Object.fromEntries(
-                            Object.entries(t).map(([k, v]) => [
-                              k,
-                              v == null ? "" : String(v),
-                            ]),
-                          ),
-                        )
+                        openEntity("permission", "הרשאות משתמש", [
+                          { key: "user_id", label: "מזהה משתמש" },
+                          {
+                            key: "role",
+                            label: "הרשאה",
+                            options: [
+                              { id: "admin", name: "מנהל ראשי" },
+                              { id: "manager", name: "מנהל מחלקה" },
+                              { id: "employee", name: "עובד" },
+                            ],
+                          },
+                          {
+                            key: "department_ids",
+                            label: "מזהי מחלקות מופרדים בפסיק",
+                            required: false,
+                          },
+                        ])
                       }
                     >
-                      עריכה
+                      הרשאות
                     </button>
                   )}
                 </div>
-              ))}
+              )}
+              <h3>תבניות משמרת</h3>
+              {data.shift_templates
+                .filter((t) => t.department_id === departmentId)
+                .map((t) => (
+                  <div className="list-row" key={t.id}>
+                    <strong>{String(t.name)}</strong>
+                    <span>
+                      {name("departments", t.department_id)} ·{" "}
+                      {t.confirmed
+                        ? `${t.start_time}–${t.end_time}`
+                        : "שעות לא מאומתות — אין להשתמש לשיבוץ"}
+                    </span>
+                    {canEdit && (
+                      <button
+                        onClick={() =>
+                          openEntity(
+                            "template",
+                            "עריכת תבנית",
+                            [
+                              dep,
+                              { key: "name", label: "שם" },
+                              {
+                                key: "start_time",
+                                label: "התחלה",
+                                type: "time",
+                                required: false,
+                              },
+                              {
+                                key: "end_time",
+                                label: "סיום",
+                                type: "time",
+                                required: false,
+                              },
+                              {
+                                key: "confirmed",
+                                label: "מאומת",
+                                options: [
+                                  { id: "false", name: "לא" },
+                                  { id: "true", name: "כן" },
+                                ],
+                              },
+                            ],
+                            Object.fromEntries(
+                              Object.entries(t).map(([k, v]) => [
+                                k,
+                                v == null ? "" : String(v),
+                              ]),
+                            ),
+                          )
+                        }
+                      >
+                        עריכה
+                      </button>
+                    )}
+                  </div>
+                ))}
               <h3>דרישות איוש</h3>
-              {data.coverage_requirements.map((c) => (
-                <div className="list-row" key={c.id}>
-                  {name("departments", c.department_id)} ·{" "}
-                  {days[Number(c.weekday)]} · {String(c.start_time)}–
-                  {String(c.end_time)} · {String(c.required_count)} עובדים
-                </div>
-              ))}
+              {data.coverage_requirements
+                .filter((c) => c.department_id === departmentId)
+                .map((c) => (
+                  <div className="list-row" key={c.id}>
+                    {name("departments", c.department_id)} ·{" "}
+                    {days[Number(c.weekday)]} · {String(c.start_time)}–
+                    {String(c.end_time)} · {String(c.required_count)} עובדים
+                    {canEdit && (
+                      <button
+                        onClick={() =>
+                          openEntity(
+                            "coverage",
+                            "עריכת דרישת איוש",
+                            [
+                              dep,
+                              site,
+                              role,
+                              {
+                                key: "weekday",
+                                label: "יום",
+                                options: days.map((name, i) => ({
+                                  id: String(i),
+                                  name,
+                                })),
+                              },
+                              {
+                                key: "start_time",
+                                label: "התחלה",
+                                type: "time",
+                              },
+                              { key: "end_time", label: "סיום", type: "time" },
+                              {
+                                key: "required_count",
+                                label: "מספר עובדים",
+                                type: "number",
+                              },
+                            ],
+                            Object.fromEntries(
+                              Object.entries(c).map(([k, v]) => [k, String(v)]),
+                            ),
+                          )
+                        }
+                      >
+                        עריכה
+                      </button>
+                    )}
+                  </div>
+                ))}
               <div className="setup-banner">
                 <Building2 />
                 <p>
@@ -2378,6 +2778,7 @@ export default function Workspace({
                   : editor.id || "copy"
               }
               data={data}
+              departmentId={departmentId}
               shift={editor}
               week={week}
               date={shiftDate || week}

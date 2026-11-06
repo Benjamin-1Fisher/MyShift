@@ -38,6 +38,7 @@ export type Assignment = {
 export type Data = {
   profiles: Row[];
   departments: Row[];
+  manager_departments: Row[];
   sites: Row[];
   roles: Row[];
   employees: Row[];
@@ -54,6 +55,7 @@ export type Data = {
 export const tables = [
   "profiles",
   "departments",
+  "manager_departments",
   "sites",
   "roles",
   "employees",
@@ -148,4 +150,22 @@ export function shortages(data: Data, week: string) {
       };
     })
     .filter((r) => r.missing > 0);
+}
+
+// Available windows constrain their submitted week; old submissions do not lock
+// the employee out of every future week. Leave/unavailable windows remain global.
+export function availabilityWindows(
+  data: Data,
+  employeeId: string,
+  startsAt: string,
+) {
+  const week = sunday(new Date(startsAt));
+  const from = civilTime(week, "00:00"),
+    to = civilTime(addDays(week, 7), "00:00");
+  return data.availability.filter(
+    (w) =>
+      w.employee_id === employeeId &&
+      (w.kind !== "available" ||
+        (String(w.starts_at) < to && String(w.ends_at) > from)),
+  );
 }

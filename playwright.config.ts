@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: "./e2e",
-  testMatch: ["workspace.spec.ts", "demo.spec.ts"],
+  testMatch: ["workspace.spec.ts", "demo.spec.ts", "departments.spec.ts"],
   use: {
     baseURL: process.env.E2E_BASE_URL || "http://127.0.0.1:3000",
     launchOptions: {

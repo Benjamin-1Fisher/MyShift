@@ -11,7 +11,7 @@ test("simple staffing flow saves directly, keeps open shifts, supports undo and 
     if (r.url().includes("/api/")) api.push(r.url());
   });
   await page.goto("/demo");
-  await expect(page.locator(".shift")).toHaveCount(21);
+  await expect(page.locator(".shift")).toHaveCount(7);
   await page.screenshot({ path: "work/simple-schedule.png", fullPage: true });
   await page.getByRole("button", { name: "עובדים", exact: true }).click();
   await page.getByRole("button", { name: "עובד חדש", exact: true }).click();
@@ -40,9 +40,6 @@ test("simple staffing flow saves directly, keeps open shifts, supports undo and 
   await page.getByRole("button", { name: "הוספת משמרת", exact: true }).click();
   dialog = page.getByRole("dialog");
   await dialog
-    .getByLabel("מחלקה", { exact: true })
-    .selectOption({ label: "סיירים" });
-  await dialog
     .getByLabel("אתר", { exact: true })
     .selectOption({ label: "מתחם צפון" });
   await dialog.getByRole("button", { name: /לילה/ }).click();
@@ -51,7 +48,7 @@ test("simple staffing flow saves directly, keeps open shifts, supports undo and 
     .getByRole("button", { name: "שמירת משמרת", exact: true })
     .click();
   await expect(dialog).toHaveCount(0);
-  await expect(page.locator(".shift")).toHaveCount(22);
+  await expect(page.locator(".shift")).toHaveCount(15);
   const night = page.locator(".shift").filter({
     has: page.locator(".shift-time").filter({ hasText: "23:00 – 07:00" }),
   });
@@ -69,11 +66,11 @@ test("simple staffing flow saves directly, keeps open shifts, supports undo and 
     .getByRole("dialog")
     .getByRole("button", { name: "מחיקת משמרת", exact: true })
     .click();
-  await expect(page.locator(".shift")).toHaveCount(21);
+  await expect(page.locator(".shift")).toHaveCount(14);
   await page
     .getByRole("button", { name: "ביטול הפעולה האחרונה", exact: true })
     .click();
-  await expect(page.locator(".shift")).toHaveCount(22);
+  await expect(page.locator(".shift")).toHaveCount(15);
   await expect(night.locator("strong")).toHaveText("רוני סייר הדגמה");
   await page.getByRole("button", { name: "פרסום סידור", exact: true }).click();
   await expect(page.getByText("פורסם", { exact: true })).toBeVisible();
@@ -86,11 +83,11 @@ test("simple staffing flow saves directly, keeps open shifts, supports undo and 
     page.getByRole("button", { name: "הוספת משמרת", exact: true }),
   ).toHaveCount(0);
   await page.reload();
-  await expect(page.locator(".shift")).toHaveCount(22);
+  await expect(page.locator(".shift")).toHaveCount(15);
   await expect(page.getByText("פורסם", { exact: true })).toBeVisible();
   const second = await context.newPage();
-  await second.goto("/demo");
-  await expect(second.locator(".shift")).toHaveCount(22);
+  await second.goto(page.url());
+  await expect(second.locator(".shift")).toHaveCount(15);
   await page.getByRole("button", { name: /עוזר AI/ }).click();
   await expect(page.getByLabel("בקשה לעוזר")).toBeDisabled();
   expect(api).toEqual([]);
@@ -101,7 +98,7 @@ test("delete is recoverable after reload and restore is draft with the same shif
   page,
 }) => {
   await page.goto("/demo");
-  await expect(page.locator(".shift")).toHaveCount(21);
+  await expect(page.locator(".shift")).toHaveCount(7);
   const readShifts = () =>
     page.evaluate(
       () =>
@@ -112,9 +109,9 @@ test("delete is recoverable after reload and restore is draft with the same shif
   await page.getByRole("button", { name: "פרסום סידור", exact: true }).click();
   await expect(page.getByText("פורסם", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "מחיקת סידור", exact: true }).click();
-  await expect(page.getByRole("dialog")).toContainText("21");
+  await expect(page.getByRole("dialog")).toContainText("7");
   await page.getByRole("button", { name: "ביטול", exact: true }).click();
-  await expect(page.locator(".shift")).toHaveCount(21);
+  await expect(page.locator(".shift")).toHaveCount(7);
   await page.getByRole("button", { name: "מחיקת סידור", exact: true }).click();
   await page
     .getByRole("button", { name: "העברה לסל המחזור", exact: true })
@@ -126,7 +123,7 @@ test("delete is recoverable after reload and restore is draft with the same shif
   ).toBeVisible();
   expect(await readShifts()).toEqual(original);
   await page.getByRole("button", { name: "שחזור סידור", exact: true }).click();
-  await expect(page.locator(".shift")).toHaveCount(21);
+  await expect(page.locator(".shift")).toHaveCount(7);
   await expect(page.getByText("טיוטה", { exact: true })).toBeVisible();
   expect(await readShifts()).toEqual(original);
   await page
@@ -144,8 +141,8 @@ test("one click creates open weeks, auto assigns, avoids duplicates and copies a
   await page
     .getByRole("button", { name: "יצירת שבוע ללא שיבוץ", exact: true })
     .click();
-  await expect(page.locator(".shift")).toHaveCount(21);
-  await expect(page.locator(".shift.open")).toHaveCount(21);
+  await expect(page.locator(".shift")).toHaveCount(7);
+  await expect(page.locator(".shift.open")).toHaveCount(7);
   await page
     .getByRole("button", { name: "שיבוץ אוטומטי", exact: true })
     .click();
@@ -153,12 +150,12 @@ test("one click creates open weeks, auto assigns, avoids duplicates and copies a
   await page
     .getByRole("button", { name: "יצירת סידור בקליק", exact: true })
     .click();
-  await expect(page.locator(".shift")).toHaveCount(21);
+  await expect(page.locator(".shift")).toHaveCount(7);
   await page.getByRole("button", { name: "שבוע הבא", exact: true }).click();
   await page
     .getByRole("button", { name: "העתקת השבוע הקודם", exact: true })
     .click();
-  await expect(page.locator(".shift")).toHaveCount(21);
+  await expect(page.locator(".shift")).toHaveCount(7);
   await page
     .getByRole("button", { name: "ביטול הפעולה האחרונה", exact: true })
     .click();
@@ -166,11 +163,11 @@ test("one click creates open weeks, auto assigns, avoids duplicates and copies a
   await page
     .getByRole("button", { name: "יצירת סידור בקליק", exact: true })
     .click();
-  await expect(page.locator(".shift")).toHaveCount(21);
+  await expect(page.locator(".shift")).toHaveCount(7);
   await page.reload();
   await page.getByRole("button", { name: "שבוע הבא", exact: true }).click();
   await page.getByRole("button", { name: "שבוע הבא", exact: true }).click();
-  await expect(page.locator(".shift")).toHaveCount(21);
+  await expect(page.locator(".shift")).toHaveCount(7);
 });
 
 test("storage errors are honest and production remains separate", async ({
@@ -195,7 +192,7 @@ test("phone planning is readable without horizontal scrolling", async ({
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/demo");
-  await expect(page.locator(".shift")).toHaveCount(21);
+  await expect(page.locator(".shift")).toHaveCount(7);
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= innerWidth,
@@ -214,7 +211,7 @@ test("archived legacy week offers fresh creation and keeps both schedules recove
   page,
 }) => {
   await page.goto("/demo");
-  await expect(page.locator(".shift")).toHaveCount(21);
+  await expect(page.locator(".shift")).toHaveCount(7);
   const original = await page.evaluate(
     () =>
       JSON.parse(localStorage.getItem("myshift.demo.v1")!).data
@@ -244,17 +241,17 @@ test("archived legacy week offers fresh creation and keeps both schedules recove
   await page
     .getByRole("button", { name: "יצירה ללא שיבוץ", exact: true })
     .click();
-  await expect(page.locator(".shift")).toHaveCount(21);
-  await expect(page.locator(".shift.open")).toHaveCount(21);
+  await expect(page.locator(".shift")).toHaveCount(7);
+  await expect(page.locator(".shift.open")).toHaveCount(7);
   const all = await page.evaluate(
     () =>
       JSON.parse(localStorage.getItem("myshift.demo.v1")!).data
         .shift_assignments,
   );
   for (const old of original) expect(all).toContainEqual(old);
-  expect(all).toHaveLength(original.length + 21);
+  expect(all).toHaveLength(original.length + 7);
   await page.reload();
-  await expect(page.locator(".shift.open")).toHaveCount(21);
+  await expect(page.locator(".shift.open")).toHaveCount(7);
   await page.getByText("סידורים שנמחקו (1)", { exact: true }).click();
   await page
     .getByRole("button", { name: "שחזור סידור זה", exact: true })
@@ -264,15 +261,15 @@ test("archived legacy week offers fresh creation and keeps both schedules recove
     .getByRole("dialog")
     .getByRole("button", { name: "ביטול", exact: true })
     .click();
-  await expect(page.locator(".shift.open")).toHaveCount(21);
+  await expect(page.locator(".shift.open")).toHaveCount(7);
   await page
     .getByRole("button", { name: "שחזור סידור זה", exact: true })
     .click();
   await page.getByRole("button", { name: "אישור שחזור", exact: true }).click();
-  await expect(page.locator(".shift")).toHaveCount(21);
-  await expect(page.locator(".shift.open")).toHaveCount(1);
+  await expect(page.locator(".shift")).toHaveCount(7);
+  await expect(page.locator(".shift.open")).toHaveCount(0);
   await page.reload();
-  await expect(page.locator(".shift.open")).toHaveCount(1);
+  await expect(page.locator(".shift.open")).toHaveCount(0);
   const after = await page.evaluate(
     () =>
       JSON.parse(localStorage.getItem("myshift.demo.v1")!).data
