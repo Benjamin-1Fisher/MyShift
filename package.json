@@ -13,6 +13,7 @@
     "test:e2e:flows": "playwright test --config=playwright.flows.config.ts"
   },
   "dependencies": {
+    "@fontsource-variable/assistant": "5.3.0",
     "@radix-ui/react-dialog": "^1.1.15",
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.81.0",

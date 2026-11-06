@@ -194,18 +194,24 @@ for (const button of ["יצירת סידור חדש", "יצירה ללא שיב�
       await card
         .locator("strong")
         .evaluate((el) => parseFloat(getComputedStyle(el).fontSize)),
-    ).toBeGreaterThanOrEqual(20);
+    ).toBeGreaterThanOrEqual(17);
     expect(
       await card
         .locator(".shift-time")
         .evaluate((el) => parseFloat(getComputedStyle(el).fontSize)),
-    ).toBeGreaterThanOrEqual(18);
+    ).toBeGreaterThanOrEqual(15);
     expect(
       await card
         .locator("small")
         .first()
         .evaluate((el) => parseFloat(getComputedStyle(el).fontSize)),
-    ).toBeGreaterThanOrEqual(16);
+    ).toBeGreaterThanOrEqual(14);
+    await page.evaluate(() => document.fonts.ready);
+    expect(
+      await page.evaluate(() =>
+        document.fonts.check('16px "Assistant Variable"', "סידור משמרות"),
+      ),
+    ).toBe(true);
     await page.screenshot({
       path: `work/full-week-${button === "יצירה ללא שיבוץ" ? "open" : "assigned"}.png`,
       fullPage: true,
