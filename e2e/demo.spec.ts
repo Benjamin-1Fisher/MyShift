@@ -141,8 +141,8 @@ test("one click creates open weeks, auto assigns, avoids duplicates and copies a
   await page
     .getByRole("button", { name: "יצירת שבוע ללא שיבוץ", exact: true })
     .click();
-  await expect(page.locator(".shift")).toHaveCount(7);
-  await expect(page.locator(".shift.open")).toHaveCount(7);
+  await expect(page.locator(".shift")).toHaveCount(21);
+  await expect(page.locator(".shift.open")).toHaveCount(21);
   await page
     .getByRole("button", { name: "שיבוץ אוטומטי", exact: true })
     .click();
@@ -150,12 +150,12 @@ test("one click creates open weeks, auto assigns, avoids duplicates and copies a
   await page
     .getByRole("button", { name: "יצירת סידור בקליק", exact: true })
     .click();
-  await expect(page.locator(".shift")).toHaveCount(7);
+  await expect(page.locator(".shift")).toHaveCount(21);
   await page.getByRole("button", { name: "שבוע הבא", exact: true }).click();
   await page
     .getByRole("button", { name: "העתקת השבוע הקודם", exact: true })
     .click();
-  await expect(page.locator(".shift")).toHaveCount(7);
+  await expect(page.locator(".shift")).toHaveCount(21);
   await page
     .getByRole("button", { name: "ביטול הפעולה האחרונה", exact: true })
     .click();
@@ -163,12 +163,64 @@ test("one click creates open weeks, auto assigns, avoids duplicates and copies a
   await page
     .getByRole("button", { name: "יצירת סידור בקליק", exact: true })
     .click();
-  await expect(page.locator(".shift")).toHaveCount(7);
+  await expect(page.locator(".shift")).toHaveCount(21);
   await page.reload();
   await page.getByRole("button", { name: "שבוע הבא", exact: true }).click();
   await page.getByRole("button", { name: "שבוע הבא", exact: true }).click();
-  await expect(page.locator(".shift")).toHaveCount(7);
+  await expect(page.locator(".shift")).toHaveCount(21);
 });
+
+for (const button of ["יצירת סידור חדש", "יצירה ללא שיבוץ"]) {
+  test(`${button} creates morning, evening and night every day and persists readable cards`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1920, height: 1080 });
+    await page.goto("/demo");
+    await page.getByRole("button", { name: "שבוע הבא", exact: true }).click();
+    await page.getByRole("button", { name: button, exact: true }).click();
+    await expect(page.locator(".shift")).toHaveCount(21);
+    for (const day of await page.locator(".day-column").all()) {
+      await expect(day.locator(".shift")).toHaveCount(3);
+      for (const hours of ["07:00 – 15:00", "15:00 – 23:00", "23:00 – 07:00"])
+        await expect(
+          day.locator(".shift-time").filter({ hasText: hours }),
+        ).toHaveCount(1);
+    }
+    if (button === "יצירה ללא שיבוץ")
+      await expect(page.locator(".shift.open")).toHaveCount(21);
+    else await expect(page.locator(".shift:not(.open)")).not.toHaveCount(0);
+    const card = page.locator(".shift").first();
+    expect(
+      await card
+        .locator("strong")
+        .evaluate((el) => parseFloat(getComputedStyle(el).fontSize)),
+    ).toBeGreaterThanOrEqual(20);
+    expect(
+      await card
+        .locator(".shift-time")
+        .evaluate((el) => parseFloat(getComputedStyle(el).fontSize)),
+    ).toBeGreaterThanOrEqual(18);
+    expect(
+      await card
+        .locator("small")
+        .first()
+        .evaluate((el) => parseFloat(getComputedStyle(el).fontSize)),
+    ).toBeGreaterThanOrEqual(16);
+    await page.screenshot({
+      path: `work/full-week-${button === "יצירה ללא שיבוץ" ? "open" : "assigned"}.png`,
+      fullPage: true,
+    });
+    await page.reload();
+    await page.getByRole("button", { name: "שבוע הבא", exact: true }).click();
+    await expect(page.locator(".shift")).toHaveCount(21);
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+  });
+}
 
 test("storage errors are honest and production remains separate", async ({
   page,
@@ -241,17 +293,17 @@ test("archived legacy week offers fresh creation and keeps both schedules recove
   await page
     .getByRole("button", { name: "יצירה ללא שיבוץ", exact: true })
     .click();
-  await expect(page.locator(".shift")).toHaveCount(7);
-  await expect(page.locator(".shift.open")).toHaveCount(7);
+  await expect(page.locator(".shift")).toHaveCount(21);
+  await expect(page.locator(".shift.open")).toHaveCount(21);
   const all = await page.evaluate(
     () =>
       JSON.parse(localStorage.getItem("myshift.demo.v1")!).data
         .shift_assignments,
   );
   for (const old of original) expect(all).toContainEqual(old);
-  expect(all).toHaveLength(original.length + 7);
+  expect(all).toHaveLength(original.length + 21);
   await page.reload();
-  await expect(page.locator(".shift.open")).toHaveCount(7);
+  await expect(page.locator(".shift.open")).toHaveCount(21);
   await page.getByText("סידורים שנמחקו (1)", { exact: true }).click();
   await page
     .getByRole("button", { name: "שחזור סידור זה", exact: true })
@@ -261,7 +313,7 @@ test("archived legacy week offers fresh creation and keeps both schedules recove
     .getByRole("dialog")
     .getByRole("button", { name: "ביטול", exact: true })
     .click();
-  await expect(page.locator(".shift.open")).toHaveCount(7);
+  await expect(page.locator(".shift.open")).toHaveCount(21);
   await page
     .getByRole("button", { name: "שחזור סידור זה", exact: true })
     .click();

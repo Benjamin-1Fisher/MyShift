@@ -100,6 +100,7 @@ export function planWeek(
       start: string,
       end: string,
       count: number,
+      minimum = false,
     ) => {
       const shift: Assignment = {
         id: crypto.randomUUID(),
@@ -116,51 +117,63 @@ export function planWeek(
         "|",
       );
       const previous = requirements.get(key);
-      requirements.set(key, { shift, count: (previous?.count || 0) + count });
+      requirements.set(key, {
+        shift,
+        count: minimum
+          ? Math.max(previous?.count || 0, count)
+          : (previous?.count || 0) + count,
+      });
     };
-    if (data.coverage_requirements.some((r) => scope(r.department_id))) {
-      for (const r of data.coverage_requirements.filter((r) =>
-        scope(r.department_id),
-      ))
-        add(
-          String(r.department_id),
-          String(r.site_id),
-          String(r.role_id),
-          addDays(week, Number(r.weekday)),
-          String(r.start_time).slice(0, 5),
-          String(r.end_time).slice(0, 5),
-          Number(r.required_count),
-        );
-    } else {
-      if (!data.sites.length || !data.roles.length)
-        throw new Error("יש להוסיף אתר ותפקיד לפני יצירת שבוע");
-      for (const role of data.roles.filter(
-        (r) =>
-          scope(r.department_id) &&
-          data.departments.some(
-            (d) => d.id === r.department_id && d.active !== false,
-          ),
-      )) {
-        const templates = data.shift_templates.filter(
-          (t) =>
-            t.department_id === role.department_id &&
-            t.confirmed &&
-            t.start_time &&
-            t.end_time,
-        );
-        const hours = templates;
+    if (!data.sites.length || !data.roles.length)
+      throw new Error("יש להוסיף אתר ותפקיד לפני יצירת שבוע");
+    const coverage = data.coverage_requirements.filter((r) =>
+      scope(r.department_id),
+    );
+    for (const r of coverage)
+      add(
+        String(r.department_id),
+        String(r.site_id),
+        String(r.role_id),
+        addDays(week, Number(r.weekday)),
+        String(r.start_time).slice(0, 5),
+        String(r.end_time).slice(0, 5),
+        Number(r.required_count),
+      );
+    for (const role of data.roles.filter(
+      (r) =>
+        scope(r.department_id) &&
+        data.departments.some(
+          (d) => d.id === r.department_id && d.active !== false,
+        ),
+    )) {
+      const roleCoverage = coverage.filter((r) => r.role_id === role.id);
+      // Coverage can increase staffing without removing the rest of the week.
+      // Custom, day-specific hours remain scoped to their explicit requirements.
+      const templates = data.shift_templates.filter(
+        (t) =>
+          t.department_id === role.department_id &&
+          t.confirmed &&
+          t.start_time &&
+          t.end_time &&
+          (!roleCoverage.length ||
+            ["בוקר", "ערב", "לילה"].includes(String(t.name))),
+      );
+      const sites = roleCoverage.length
+        ? data.sites.filter((s) => roleCoverage.some((r) => r.site_id === s.id))
+        : data.sites.slice(0, 1);
+      for (const site of sites)
         for (let day = 0; day < 7; day++)
-          for (const t of hours)
+          for (const t of templates)
             add(
               String(role.department_id),
-              data.sites[0].id,
+              site.id,
               role.id,
               addDays(week, day),
               String(t.start_time).slice(0, 5),
               String(t.end_time).slice(0, 5),
               1,
+              true,
             );
-      }
     }
     if (!requirements.size)
       throw new Error("יש להגדיר ולאמת שעות משמרת למחלקה לפני יצירת סידור");
