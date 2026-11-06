@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-test("demo full journey persists employees, shifts and publication without API calls", async ({
+test("simple staffing flow saves directly, keeps open shifts, supports undo and publishes", async ({
   page,
   context,
 }) => {
@@ -10,15 +10,9 @@ test("demo full journey persists employees, shifts and publication without API c
   page.on("request", (r) => {
     if (r.url().includes("/api/")) api.push(r.url());
   });
-  await page.goto("/");
-  await page.screenshot({ path: "work/landing.png", fullPage: true });
-  await page.getByRole("link", { name: "כניסה להדגמה" }).click();
-  await expect(
-    page.getByRole("heading", { name: "יום עבודה מסודר מתחיל כאן" }),
-  ).toBeVisible();
-  await expect(page.locator(".stats")).toContainText("21");
-  await expect(page.locator(".stats")).toContainText("8");
-  await page.screenshot({ path: "work/dashboard.png", fullPage: true });
+  await page.goto("/demo");
+  await expect(page.locator(".shift")).toHaveCount(21);
+  await page.screenshot({ path: "work/simple-schedule.png", fullPage: true });
   await page.getByRole("button", { name: "עובדים", exact: true }).click();
   await page.getByRole("button", { name: "עובד חדש", exact: true }).click();
   let dialog = page.getByRole("dialog");
@@ -27,22 +21,22 @@ test("demo full journey persists employees, shifts and publication without API c
     .getByLabel("מחלקה", { exact: true })
     .selectOption({ label: "סיירים" });
   await dialog.getByLabel("תפקיד / הכשרה").selectOption({ label: "סייר" });
-  await dialog.getByRole("button", { name: "המשך", exact: true }).click();
+  await dialog.getByRole("button", { name: "שמירה", exact: true }).click();
   await expect(dialog).not.toBeVisible();
-  const employee = page.getByRole("row").filter({ hasText: "רוני הדגמה" });
-  await expect(employee).toContainText("סיירים / סייר");
-  await employee.getByRole("button", { name: "עריכה", exact: true }).click();
+  await page
+    .getByRole("row")
+    .filter({ hasText: "רוני הדגמה" })
+    .getByRole("button", { name: "עריכה", exact: true })
+    .click();
   await page
     .getByRole("dialog")
     .getByLabel("שם", { exact: true })
     .fill("רוני סייר הדגמה");
   await page
     .getByRole("dialog")
-    .getByRole("button", { name: "המשך", exact: true })
+    .getByRole("button", { name: "שמירה", exact: true })
     .click();
-  await expect(
-    page.getByRole("row").filter({ hasText: "רוני סייר הדגמה" }),
-  ).toBeVisible();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
   await page.getByRole("button", { name: "הוספת משמרת", exact: true }).click();
   dialog = page.getByRole("dialog");
   await dialog
@@ -51,110 +45,142 @@ test("demo full journey persists employees, shifts and publication without API c
   await dialog
     .getByLabel("אתר", { exact: true })
     .selectOption({ label: "מתחם צפון" });
-  await dialog.getByLabel("תפקיד / הכשרה").selectOption({ label: "סייר" });
-  await dialog.getByLabel("התחלה", { exact: true }).fill("23:00");
-  await dialog.getByLabel("סיום", { exact: true }).fill("07:00");
-  await dialog.getByRole("button", { name: "המשך", exact: true }).click();
-  await expect(
-    page.getByRole("heading", { name: "בדיקת שינוי ואישור" }),
-  ).toBeVisible();
-  await expect(page.locator(".shift")).toHaveCount(21);
-  await page.getByRole("button", { name: "אישור וביצוע" }).click();
-  await expect(page.locator(".shift")).toHaveCount(22);
-  const open = page
-    .locator(".shift")
-    .filter({ hasText: "23:00 – 07:00" })
-    .filter({ hasText: "דרוש שיבוץ" });
-  await open.click();
-  await page
-    .getByRole("dialog")
-    .getByLabel("עובד (אפשר להשאיר פתוח)")
-    .selectOption({ label: "רוני סייר הדגמה" });
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: "המשך", exact: true })
+  await dialog.getByRole("button", { name: /לילה/ }).click();
+  await expect(dialog.getByLabel("עובד במשמרת")).toHaveValue("");
+  await dialog
+    .getByRole("button", { name: "שמירת משמרת", exact: true })
     .click();
-  await page.getByRole("button", { name: "אישור וביצוע" }).click();
-  await expect(
-    page.locator(".shift").filter({ hasText: "רוני סייר הדגמה" }),
-  ).toContainText("למחרת");
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator(".shift")).toHaveCount(22);
+  const night = page.locator(".shift").filter({
+    has: page.locator(".shift-time").filter({ hasText: "23:00 – 07:00" }),
+  });
+  await expect(night.locator("strong")).toHaveText("משמרת פנויה");
+  await night.locator("select").selectOption({ label: "רוני סייר הדגמה" });
+  await expect(night.locator("strong")).toHaveText("רוני סייר הדגמה");
+  await night.locator("select").selectOption("");
+  await expect(night.locator("strong")).toHaveText("משמרת פנויה");
+  await page
+    .getByRole("button", { name: "ביטול הפעולה האחרונה", exact: true })
+    .click();
+  await expect(night.locator("strong")).toHaveText("רוני סייר הדגמה");
+  await night.locator(".shift-main").click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "מחיקת משמרת", exact: true })
+    .click();
+  await expect(page.locator(".shift")).toHaveCount(21);
+  await page
+    .getByRole("button", { name: "ביטול הפעולה האחרונה", exact: true })
+    .click();
+  await expect(page.locator(".shift")).toHaveCount(22);
+  await expect(night.locator("strong")).toHaveText("רוני סייר הדגמה");
   await page.getByRole("button", { name: "פרסום סידור", exact: true }).click();
   await expect(page.getByText("פורסם", { exact: true })).toBeVisible();
-  await page.screenshot({ path: "work/published.png", fullPage: true });
   await page
     .getByLabel("תצוגת הדגמה")
     .selectOption({ label: "עובד · רוני סייר הדגמה" });
   await expect(page.locator(".shift")).toHaveCount(1);
-  await expect(page.locator(".shift")).toContainText("רוני סייר הדגמה");
+  await expect(page.locator(".shift-main")).toContainText("רוני סייר הדגמה");
   await expect(
     page.getByRole("button", { name: "הוספת משמרת", exact: true }),
   ).toHaveCount(0);
   await page.reload();
-  await page.getByRole("button", { name: "סידורי עבודה", exact: true }).click();
   await expect(page.locator(".shift")).toHaveCount(22);
   await expect(page.getByText("פורסם", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "עובדים", exact: true }).click();
-  await expect(
-    page.getByRole("row").filter({ hasText: "רוני סייר הדגמה" }),
-  ).toBeVisible();
-  await page.getByRole("button", { name: /עוזר AI/ }).click();
-  await expect(
-    page.getByRole("heading", { name: "עוזר AI — בקרוב" }),
-  ).toBeVisible();
-  await expect(page.getByLabel("בקשה לעוזר")).toBeDisabled();
-  await expect(page.locator(".chat-input button")).toBeDisabled();
   const second = await context.newPage();
   await second.goto("/demo");
-  await second
-    .getByRole("button", { name: "סידורי עבודה", exact: true })
-    .click();
   await expect(second.locator(".shift")).toHaveCount(22);
-  expect(errors).toEqual([]);
+  await page.getByRole("button", { name: /עוזר AI/ }).click();
+  await expect(page.getByLabel("בקשה לעוזר")).toBeDisabled();
   expect(api).toEqual([]);
+  expect(errors).toEqual([]);
 });
 
-test("demo checks overlap and draft visibility; production stays isolated", async ({
+test("delete is recoverable after reload and restore is draft with the same shifts", async ({
   page,
-  browser,
 }) => {
   await page.goto("/demo");
+  await expect(page.locator(".shift")).toHaveCount(21);
+  const readShifts = () =>
+    page.evaluate(
+      () =>
+        JSON.parse(localStorage.getItem("myshift.demo.v1")!).data
+          .shift_assignments,
+    );
+  const original = await readShifts();
+  await page.getByRole("button", { name: "פרסום סידור", exact: true }).click();
+  await expect(page.getByText("פורסם", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "מחיקת סידור", exact: true }).click();
+  await expect(page.getByRole("dialog")).toContainText("21");
+  await page.getByRole("button", { name: "ביטול", exact: true }).click();
+  await expect(page.locator(".shift")).toHaveCount(21);
+  await page.getByRole("button", { name: "מחיקת סידור", exact: true }).click();
+  await page
+    .getByRole("button", { name: "העברה לסל המחזור", exact: true })
+    .click();
+  await expect(page.locator(".shift")).toHaveCount(0);
+  await page.reload();
+  await expect(
+    page.getByRole("button", { name: "שחזור סידור", exact: true }),
+  ).toBeVisible();
+  expect(await readShifts()).toEqual(original);
+  await page.getByRole("button", { name: "שחזור סידור", exact: true }).click();
+  await expect(page.locator(".shift")).toHaveCount(21);
+  await expect(page.getByText("טיוטה", { exact: true })).toBeVisible();
+  expect(await readShifts()).toEqual(original);
   await page
     .getByLabel("תצוגת הדגמה")
     .selectOption({ label: "עובד · דניאל לוי" });
   await expect(page.locator(".shift")).toHaveCount(0);
-  await page.getByLabel("תצוגת הדגמה").selectOption({ label: "מנהל" });
-  await page.getByRole("button", { name: "הוספת משמרת", exact: true }).click();
-  const dialog = page.getByRole("dialog");
-  await dialog
-    .getByLabel("מחלקה", { exact: true })
-    .selectOption({ label: "אחמ״שים" });
-  await dialog
-    .getByLabel("אתר", { exact: true })
-    .selectOption({ label: "מתחם מרכז" });
-  await dialog.getByLabel("תפקיד / הכשרה").selectOption({ label: "אחמ״ש" });
-  await dialog
-    .getByLabel("עובד (אפשר להשאיר פתוח)")
-    .selectOption({ label: "דניאל לוי" });
-  await dialog.getByRole("button", { name: "המשך", exact: true }).click();
-  await expect(dialog.getByRole("alert")).toContainText("חופפת");
-  await dialog.getByRole("button", { name: "סגירה", exact: true }).click();
+});
+
+test("one click creates open weeks, auto assigns, avoids duplicates and copies a previous week", async ({
+  page,
+}) => {
+  await page.goto("/demo");
+  await page.getByRole("button", { name: "שבוע הבא", exact: true }).click();
+  await page.getByText("אפשרויות נוספות לשבוע", { exact: true }).click();
+  await page
+    .getByRole("button", { name: "יצירת שבוע ללא שיבוץ", exact: true })
+    .click();
   await expect(page.locator(".shift")).toHaveCount(21);
+  await expect(page.locator(".shift.open")).toHaveCount(21);
+  await page
+    .getByRole("button", { name: "שיבוץ אוטומטי", exact: true })
+    .click();
+  await expect(page.locator(".shift.open")).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "יצירת סידור בקליק", exact: true })
+    .click();
+  await expect(page.locator(".shift")).toHaveCount(21);
+  await page.getByRole("button", { name: "שבוע הבא", exact: true }).click();
+  await page
+    .getByRole("button", { name: "העתקת השבוע הקודם", exact: true })
+    .click();
+  await expect(page.locator(".shift")).toHaveCount(21);
+  await page
+    .getByRole("button", { name: "ביטול הפעולה האחרונה", exact: true })
+    .click();
+  await expect(page.locator(".shift")).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "יצירת סידור בקליק", exact: true })
+    .click();
+  await expect(page.locator(".shift")).toHaveCount(21);
+  await page.reload();
+  await page.getByRole("button", { name: "שבוע הבא", exact: true }).click();
+  await page.getByRole("button", { name: "שבוע הבא", exact: true }).click();
+  await expect(page.locator(".shift")).toHaveCount(21);
+});
+
+test("storage errors are honest and production remains separate", async ({
+  page,
+}) => {
   await page.goto("/app");
   await expect(
     page.getByRole("heading", { name: "המערכת הארגונית עדיין לא מחוברת" }),
   ).toBeVisible();
   await expect(page.locator(".demo-banner")).toHaveCount(0);
-  const isolated = await browser.newContext();
-  const fresh = await isolated.newPage();
-  await fresh.goto("/demo");
-  await fresh.getByRole("button", { name: "עובדים", exact: true }).click();
-  await expect(fresh.locator("tbody tr")).toHaveCount(8);
-  await isolated.close();
-});
-
-test("storage failure is explicit and does not claim success", async ({
-  page,
-}) => {
   await page.addInitScript(() => {
     Storage.prototype.setItem = () => {
       throw new DOMException("quota", "QuotaExceededError");
@@ -162,7 +188,24 @@ test("storage failure is explicit and does not claim success", async ({
   });
   await page.goto("/demo");
   await expect(page.locator("p[role=alert]")).toContainText("השינוי לא נשמר");
+});
+
+test("phone planning is readable without horizontal scrolling", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/demo");
+  await expect(page.locator(".shift")).toHaveCount(21);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({ path: "work/simple-mobile.png", fullPage: true });
+  await page.getByRole("button", { name: "הוספת משמרת", exact: true }).click();
   await expect(
-    page.getByRole("button", { name: "הוספת משמרת", exact: true }),
-  ).toHaveCount(0);
+    page
+      .getByRole("dialog")
+      .getByRole("button", { name: "שמירת משמרת", exact: true }),
+  ).toBeVisible();
 });

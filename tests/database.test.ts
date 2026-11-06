@@ -50,6 +50,9 @@ beforeAll(async () => {
   await db.exec(
     readFileSync("supabase/migrations/003_simple_onboarding.sql", "utf8"),
   );
+  await db.exec(
+    readFileSync("supabase/migrations/004_schedule_trash.sql", "utf8"),
+  );
   await db.query("insert into auth.users(id) values($1),($2),($3)", [
     admin,
     manager,
@@ -297,4 +300,63 @@ it("initial organization setup is repeatable and admin-only", async () => {
   await expect(rpc("initialize_workspace", ["אתר אסור"])).rejects.toThrow(
     /הרשאת/,
   );
+});
+
+it("soft-deletes and restores a schedule without losing shifts; guards permissions and stale revisions", async () => {
+  await asUser(admin);
+  const rows = await q<{ revision: number }>(
+    "select revision from schedule_versions where id=$1",
+    [version],
+  );
+  const before = await q(
+    "select * from shift_assignments where version_id=$1 order by id",
+    [version],
+  );
+  const rev = rows[0].revision;
+  await rpc("schedule_lifecycle", ["2026-11-01", "archive", rev]);
+  expect(
+    (
+      await q<{ status: string }>(
+        "select status from schedule_versions where id=$1",
+        [version],
+      )
+    )[0].status,
+  ).toBe("archived");
+  expect(
+    await q("select * from shift_assignments where version_id=$1 order by id", [
+      version,
+    ]),
+  ).toEqual(before);
+  await asUser(worker);
+  expect(
+    await q("select * from shift_assignments where version_id=$1", [version]),
+  ).toHaveLength(0);
+  await expect(
+    rpc("schedule_lifecycle", ["2026-11-01", "restore", rev + 1]),
+  ).rejects.toThrow(/מנהל ראשי/);
+  await asUser(manager);
+  await expect(
+    rpc("schedule_lifecycle", ["2026-11-01", "restore", rev + 1]),
+  ).rejects.toThrow(/מנהל ראשי/);
+  await asUser(admin);
+  await expect(
+    rpc("schedule_action", ["2026-11-01", "publish"]),
+  ).rejects.toThrow(/לשחזר/);
+  await expect(
+    rpc("schedule_lifecycle", ["2026-11-01", "restore", rev]),
+  ).rejects.toThrow(/השתנה/);
+  await rpc("schedule_lifecycle", ["2026-11-01", "restore", rev + 1]);
+  expect(
+    (
+      await q<{ status: string }>(
+        "select status from schedule_versions where id=$1",
+        [version],
+      )
+    )[0].status,
+  ).toBe("draft");
+  expect(
+    await q("select * from shift_assignments where version_id=$1 order by id", [
+      version,
+    ]),
+  ).toEqual(before);
 });

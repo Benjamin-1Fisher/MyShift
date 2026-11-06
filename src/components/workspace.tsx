@@ -1,5 +1,7 @@
 "use client";
 import Link from "next/link";
+import ShiftEditor from "./shift-editor";
+import { canAssign, planWeek, copyPreviousWeek } from "@/lib/planner";
 import { useRouter } from "next/navigation";
 import {
   useCallback,
@@ -122,7 +124,9 @@ function EntityForm({
   fields,
   initial,
   onSubmit,
+  submitLabel = "שמירה",
 }: {
+  submitLabel?: string;
   fields: Field[];
   initial?: Record<string, string>;
   onSubmit: (v: Record<string, string>) => Promise<void>;
@@ -134,14 +138,6 @@ function EntityForm({
   const [busy, setBusy] = useState(false);
   return (
     <form
-      onChange={(e) => {
-        setSelections(
-          Object.fromEntries(new FormData(e.currentTarget)) as Record<
-            string,
-            string
-          >,
-        );
-      }}
       onSubmit={async (e: FormEvent<HTMLFormElement>) => {
         e.preventDefault();
         setBusy(true);
@@ -168,7 +164,22 @@ function EntityForm({
               <select
                 name={f.key}
                 aria-label={f.label}
-                defaultValue={initial?.[f.key] || ""}
+                value={selections[f.key] || ""}
+                onChange={(e) => {
+                  const next = { ...selections, [f.key]: e.target.value };
+                  for (const child of fields.filter(
+                    (child) => child.dependsOn === f.key,
+                  )) {
+                    const options =
+                      child.options?.filter(
+                        (o) =>
+                          o[child.optionParent || child.dependsOn!] ===
+                          e.target.value,
+                      ) || [];
+                    next[child.key] = options.length === 1 ? options[0].id : "";
+                  }
+                  setSelections(next);
+                }}
                 required={f.required !== false}
               >
                 <option value="">בחירה…</option>
@@ -204,7 +215,7 @@ function EntityForm({
         </p>
       )}
       <button className="primary" disabled={busy}>
-        {busy ? "בודק…" : "המשך"}
+        {busy ? "שומר…" : submitLabel}
       </button>
     </form>
   );
@@ -237,7 +248,7 @@ export default function Workspace({
   );
   const [data, setData] = useState<Data>(empty),
     [userId, setUserId] = useState(""),
-    [page, setPage] = useState("dashboard"),
+    [page, setPage] = useState("schedule"),
     [week, setWeek] = useState(sunday()),
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
@@ -248,8 +259,14 @@ export default function Workspace({
     [siteFilter, setSiteFilter] = useState(""),
     [view, setView] = useState("week"),
     [search, setSearch] = useState("");
-  const [template, setTemplate] = useState(""),
-    [editor, setEditor] = useState<Assignment | true | null>(null),
+  const [shiftDate, setShiftDate] = useState("");
+  const [lastUndo, setLastUndo] = useState<{
+    week: string;
+    revision: number;
+    operations: Operation[];
+  } | null>(null);
+  const [archivePrompt, setArchivePrompt] = useState(false);
+  const [editor, setEditor] = useState<Assignment | true | null>(null),
     [entity, setEntity] = useState<{
       kind: string;
       title: string;
@@ -343,7 +360,12 @@ export default function Workspace({
       : data.profiles.find((p) => p.id === userId),
     isAdmin = profile?.role === "admin",
     canEdit = !!profile && profile.role !== "employee";
-  const version = data.schedule_versions.find((v) => v.week_start === week);
+  const archived = data.schedule_versions.find(
+    (v) => v.week_start === week && v.status === "archived",
+  );
+  const version = data.schedule_versions.find(
+    (v) => v.week_start === week && v.status !== "archived",
+  );
   const assigned = displayData.shift_assignments.filter(
     (a) => a.version_id === version?.id,
   );
@@ -368,6 +390,67 @@ export default function Workspace({
     } finally {
       setBusy(false);
     }
+  };
+  const commitChanges = async (
+    operations: Operation[],
+    remember = true,
+    expectedRevision = Number(version?.revision || 0),
+  ) => {
+    if (!operations.length) {
+      setNotice("הסידור כבר מעודכן. לא נדרשו שינויים.");
+      return;
+    }
+    const vid =
+      version?.id || (await post("/api/change", { action: "create", week }));
+    const proposed = await post("/api/change", {
+      action: "preview",
+      version: vid,
+      operations,
+    });
+    if (Number(proposed.revision) !== expectedRevision) {
+      await post("/api/change", { action: "cancel", id: proposed.id });
+      throw new Error("הסידור השתנה. רעננו לפני השינוי או הביטול.");
+    }
+    const changes = (await post("/api/change", {
+      action: "confirm",
+      id: proposed.id,
+    })) as Preview["changes"];
+    if (remember && Array.isArray(changes))
+      setLastUndo({
+        week,
+        revision: expectedRevision + 1,
+        operations: changes
+          .slice()
+          .reverse()
+          .map((c) =>
+            c.before
+              ? { ...c.before, kind: c.after ? "update" : "create" }
+              : { kind: "delete", id: c.after!.id },
+          ) as Operation[],
+      });
+    await load();
+    setNotice(
+      demo
+        ? "נשמר בדפדפן הזה בלבד. אפשר לבטל את הפעולה האחרונה."
+        : "השינויים נשמרו. אפשר לבטל את הפעולה האחרונה.",
+    );
+  };
+  const lifecycle = async (action: "archive" | "restore") => {
+    const current = action === "archive" ? version : archived;
+    if (!current) throw new Error("הסידור כבר השתנה. רעננו ונסו שוב");
+    await post("/api/change", {
+      action,
+      week,
+      revision: Number(current.revision),
+    });
+    setLastUndo(null);
+    setArchivePrompt(false);
+    await load();
+    setNotice(
+      action === "archive"
+        ? "הסידור הועבר לסל המחזור. כל המשמרות נשמרו לשחזור."
+        : "הסידור שוחזר כטיוטה, כולל המשמרות והשיבוצים.",
+    );
   };
   const propose = async (operations: Operation[]) => {
     const vid =
@@ -495,20 +578,6 @@ export default function Workspace({
     );
   }
 
-  const assignmentFields = [
-    dep,
-    site,
-    role,
-    selectField(
-      "employee_id",
-      "עובד (אפשר להשאיר פתוח)",
-      data.employees,
-      false,
-    ),
-    { key: "date", label: "תאריך", type: "date" },
-    { key: "start", label: "התחלה", type: "time" },
-    { key: "end", label: "סיום", type: "time" },
-  ];
   const previewAssignments = preview
     ? assigned
         .filter((a) => !preview.changes.some((c) => c.before?.id === a.id))
@@ -518,38 +587,8 @@ export default function Workspace({
     { ...data, shift_assignments: previewAssignments },
     week,
   );
-  const chosenTemplate = data.shift_templates.find(
-    (t) => t.id === template && t.confirmed,
-  );
-  const initialShift: Record<string, string> =
-    typeof editor === "object" && editor
-      ? {
-          department_id: editor.department_id,
-          site_id: editor.site_id,
-          role_id: editor.role_id,
-          employee_id: editor.employee_id || "",
-          date: localDate(editor.starts_at),
-          start: time(editor.starts_at),
-          end: time(editor.ends_at),
-        }
-      : {
-          date: week,
-          site_id: data.sites.length === 1 ? data.sites[0].id : "",
-          role_id: data.roles.length === 1 ? data.roles[0].id : "",
-          start: chosenTemplate
-            ? String(chosenTemplate.start_time).slice(0, 5)
-            : "07:00",
-          end: chosenTemplate
-            ? String(chosenTemplate.end_time).slice(0, 5)
-            : "15:00",
-          department_id: chosenTemplate
-            ? String(chosenTemplate.department_id)
-            : data.departments.length === 1
-              ? data.departments[0].id
-              : "",
-        };
   const renderCard = (a: Assignment) => (
-    <button
+    <article
       key={a.id}
       className={`shift ${!a.employee_id ? "open" : ""}`}
       style={{
@@ -558,24 +597,63 @@ export default function Workspace({
             "#8173cf",
         ),
       }}
-      draggable={canEdit && version?.status === "draft"}
-      onDragStart={(e) => e.dataTransfer.setData("text/plain", a.id)}
-      onClick={() => setEditor(a)}
     >
-      <span className="shift-time" dir="ltr">
-        {time(a.starts_at)} – {time(a.ends_at)}
-      </span>
-      <strong>
-        {a.employee_id ? name("employees", a.employee_id) : "דרוש שיבוץ"}
-      </strong>
-      <small>
-        {name("departments", a.department_id)} · {name("sites", a.site_id)}
-      </small>
-      <small>
-        {name("roles", a.role_id)}
-        {localDate(a.ends_at) !== localDate(a.starts_at) ? " · למחרת" : ""}
-      </small>
-    </button>
+      <button
+        className="shift-main"
+        onClick={() => setEditor(a)}
+        aria-label={`עריכת משמרת ${time(a.starts_at)} ${a.employee_id ? name("employees", a.employee_id) : "פנויה"}`}
+      >
+        <span className="shift-time" dir="ltr">
+          {time(a.starts_at)} – {time(a.ends_at)}
+        </span>
+        <strong>
+          {a.employee_id ? name("employees", a.employee_id) : "משמרת פנויה"}
+        </strong>
+        <small>
+          {name("departments", a.department_id)} · {name("sites", a.site_id)}
+        </small>
+        <small>
+          {name("roles", a.role_id)}
+          {localDate(a.ends_at) !== localDate(a.starts_at) ? " · למחרת" : ""}
+        </small>
+      </button>
+      {canEdit && version?.status === "draft" && (
+        <select
+          aria-label={`שיבוץ ${localDate(a.starts_at)} ${time(a.starts_at)} ${name("roles", a.role_id)}`}
+          value={a.employee_id || ""}
+          disabled={busy}
+          onChange={(e) =>
+            void run(() =>
+              commitChanges([
+                { ...a, kind: "update", employee_id: e.target.value || null },
+              ]),
+            )
+          }
+        >
+          <option value="">ללא עובד · פנויה</option>
+          {data.employees
+            .filter(
+              (e) =>
+                e.active &&
+                data.employee_departments.some(
+                  (m) =>
+                    m.employee_id === e.id &&
+                    m.department_id === a.department_id &&
+                    m.role_id === a.role_id,
+                ),
+            )
+            .map((e) => (
+              <option
+                key={e.id}
+                value={e.id}
+                disabled={e.id !== a.employee_id && !canAssign(data, a, e.id)}
+              >
+                {String(e.name)}
+              </option>
+            ))}
+        </select>
+      )}
+    </article>
   );
   if (!userId)
     return (
@@ -593,6 +671,7 @@ export default function Workspace({
               </Link>
               <p>התחבר לחשבון הארגון כדי לנהל עובדים וסידורי עבודה.</p>
               <EntityForm
+                submitLabel="כניסה"
                 fields={[
                   { key: "email", label: "דוא״ל", type: "email" },
                   { key: "password", label: "סיסמה", type: "password" },
@@ -623,7 +702,7 @@ export default function Workspace({
       </main>
     );
   return (
-    <div className="app">
+    <div className={page === "schedule" ? "app planning" : "app"}>
       <aside className={menu ? "sidebar visible" : "sidebar"}>
         <Link className="brand" href="/">
           <span className="brand-icon">
@@ -635,24 +714,54 @@ export default function Workspace({
           מרחב ניהול האבטחה <span>WORKSPACE</span>
         </div>
         <nav>
-          {nav.map(([key, label, Icon]) => (
-            <button
-              className={page === key ? "nav-item active" : "nav-item"}
-              key={key}
-              onClick={() => {
-                setPage(key);
-                setMenu(false);
-              }}
-            >
-              <Icon size={19} />
-              {label}
-              {key === "ai" && <span className="tiny-tag">בקרוב</span>}
-              {key === "notifications" &&
-                data.notifications.some((n) => !n.read) && (
-                  <i className="dot" />
-                )}
-            </button>
-          ))}
+          {nav
+            .filter(([key]) =>
+              ["dashboard", "schedule", "employees", "ai"].includes(key),
+            )
+            .map(([key, label, Icon]) => (
+              <button
+                className={page === key ? "nav-item active" : "nav-item"}
+                key={key}
+                onClick={() => {
+                  setPage(key);
+                  setMenu(false);
+                }}
+              >
+                <Icon size={19} />
+                {label}
+                {key === "ai" && <span className="tiny-tag">בקרוב</span>}
+                {key === "notifications" &&
+                  data.notifications.some((n) => !n.read) && (
+                    <i className="dot" />
+                  )}
+              </button>
+            ))}
+          <details className="nav-extra">
+            <summary>ניהול נוסף</summary>{" "}
+            {nav
+              .filter(
+                ([key]) =>
+                  !["dashboard", "schedule", "employees", "ai"].includes(key),
+              )
+              .map(([key, label, Icon]) => (
+                <button
+                  className={page === key ? "nav-item active" : "nav-item"}
+                  key={key}
+                  onClick={() => {
+                    setPage(key);
+                    setMenu(false);
+                  }}
+                >
+                  <Icon size={19} />
+                  {label}
+                  {key === "ai" && <span className="tiny-tag">בקרוב</span>}
+                  {key === "notifications" &&
+                    data.notifications.some((n) => !n.read) && (
+                      <i className="dot" />
+                    )}
+                </button>
+              ))}
+          </details>
         </nav>
         <div className="sidebar-note">
           <ShieldCheck size={22} />
@@ -740,7 +849,7 @@ export default function Workspace({
                   value={demoEmployee}
                   onChange={(e) => {
                     setDemoEmployee(e.target.value);
-                    setPage(e.target.value ? "schedule" : "dashboard");
+                    setPage("schedule");
                     setFilter("");
                     setEmployeeFilter("");
                     setSiteFilter("");
@@ -779,7 +888,7 @@ export default function Workspace({
               </p>
             </div>
             <div className="row">
-              {canEdit && !version && (
+              {canEdit && !version && !archived && page !== "schedule" && (
                 <button
                   disabled={busy}
                   onClick={() =>
@@ -795,12 +904,13 @@ export default function Workspace({
                   יצירת סידור שבועי
                 </button>
               )}
-              {canEdit && (
+              {canEdit && !archived && (
                 <button
                   className="primary"
-                  disabled={busy}
+                  disabled={busy || version?.status === "published"}
                   onClick={() => {
                     setPage("schedule");
+                    setShiftDate(week);
                     setEditor(true);
                   }}
                 >
@@ -827,6 +937,7 @@ export default function Workspace({
             <section className="panel login">
               <h2>כניסה למערכת</h2>
               <EntityForm
+                submitLabel="כניסה"
                 fields={[
                   { key: "email", label: "דוא״ל", type: "email" },
                   { key: "password", label: "סיסמה", type: "password" },
@@ -1071,158 +1182,49 @@ export default function Workspace({
                     " השבוע הנבחר עדיין בטיוטה; חזרו לתצוגת מנהל כדי לפרסם אותו."}
                 </div>
               )}
-              <section className="panel schedule-panel">
-                <div className="toolbar">
-                  <div className="row">
-                    <button
-                      aria-label="שבוע קודם"
-                      onClick={() => setWeek(addDays(week, -7))}
-                    >
-                      <ChevronRight size={18} />
-                    </button>
-                    <h2>
-                      {week} — {addDays(week, 6)}
-                    </h2>
-                    <button
-                      aria-label="שבוע הבא"
-                      onClick={() => setWeek(addDays(week, 7))}
-                    >
-                      <ChevronLeft size={18} />
-                    </button>
-                    <button onClick={() => setWeek(sunday())}>השבוע</button>
-                    <span className="badge">
-                      {version?.status === "published"
-                        ? "פורסם"
-                        : version
-                          ? "טיוטה"
-                          : "טרם נוצר"}
-                    </span>
+              {canEdit && (
+                <section className="planner-actions" aria-label="ניהול הסידור">
+                  <div>
+                    <strong>השבוע שלך, בשליטה</strong>
+                    <p>
+                      {assigned.length} משמרות ·{" "}
+                      {assigned.filter((a) => !a.employee_id).length} פנויות
+                      לשיבוץ
+                    </p>
                   </div>
                   <div className="row">
-                    <button onClick={() => void run(exportExcel)}>
-                      <Download size={16} /> Excel
-                    </button>
-                    <label className="button">
-                      <Upload size={16} /> ייבוא
-                      <input
-                        type="file"
-                        hidden
-                        accept=".csv,.xlsx"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file)
-                            void run(async () => {
-                              if (file.size > 2_000_000)
-                                throw new Error("גודל קובץ מרבי: 2MB");
-                              const { parseWorkbook } =
-                                await import("@/lib/spreadsheet");
-                              const rows = await parseWorkbook(file);
-                              if (rows.length > 100)
-                                throw new Error("עד 100 שורות בייבוא אחד");
-                              setImportRows(rows);
-                              setMapping({});
-                            });
-                          e.target.value = "";
-                        }}
-                      />
-                    </label>
-                    <button onClick={() => window.print()} aria-label="הדפסה">
-                      <Printer size={17} />
-                    </button>
-                  </div>
-                </div>
-                <div className="toolbar filters">
-                  <div className="row">
-                    <select
-                      aria-label="מחלקה"
-                      value={filter}
-                      onChange={(e) => setFilter(e.target.value)}
-                    >
-                      <option value="">כל המחלקות</option>
-                      {data.departments.map((d) => (
-                        <option value={d.id} key={d.id}>
-                          {String(d.name)}
-                        </option>
-                      ))}
-                    </select>
-                    <select
-                      aria-label="עובד"
-                      value={employeeFilter}
-                      onChange={(e) => setEmployeeFilter(e.target.value)}
-                    >
-                      <option value="">כל העובדים</option>
-                      {data.employees.map((d) => (
-                        <option value={d.id} key={d.id}>
-                          {String(d.name)}
-                        </option>
-                      ))}
-                    </select>
-                    <select
-                      aria-label="אתר"
-                      value={siteFilter}
-                      onChange={(e) => setSiteFilter(e.target.value)}
-                    >
-                      <option value="">כל האתרים</option>
-                      {data.sites.map((d) => (
-                        <option value={d.id} key={d.id}>
-                          {String(d.name)}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="row">
-                    <select
-                      aria-label="תצוגה"
-                      value={view}
-                      onChange={(e) => setView(e.target.value)}
-                    >
-                      <option value="week">שבוע</option>
-                      <option value="month">חודש</option>
-                      <option value="employee">לפי עובד</option>
-                    </select>
-                    {canEdit && version?.status === "draft" && (
-                      <button
-                        onClick={() =>
-                          openEntity("swap", "החלפת עובדים בין משמרות", [
-                            selectField(
-                              "first",
-                              "משמרת ראשונה",
-                              assigned.map((a) => ({
-                                id: a.id,
-                                name: `${name("employees", a.employee_id)} · ${localDate(a.starts_at)} ${time(a.starts_at)}`,
-                              })),
-                            ),
-                            selectField(
-                              "second",
-                              "משמרת שנייה",
-                              assigned.map((a) => ({
-                                id: a.id,
-                                name: `${name("employees", a.employee_id)} · ${localDate(a.starts_at)} ${time(a.starts_at)}`,
-                              })),
-                            ),
-                          ])
-                        }
-                      >
-                        החלפה
-                      </button>
-                    )}
-                    {canEdit && !version && (
-                      <button
-                        disabled={busy}
-                        onClick={() =>
-                          void run(async () => {
-                            await post("/api/change", {
-                              action: "create",
-                              week,
-                            });
-                          })
-                        }
-                      >
-                        יצירת טיוטה
-                      </button>
+                    {!archived && (!version || version.status === "draft") && (
+                      <>
+                        <button
+                          className="primary"
+                          disabled={busy}
+                          onClick={() =>
+                            void run(() =>
+                              commitChanges(planWeek(data, week, "generate")),
+                            )
+                          }
+                        >
+                          יצירת סידור בקליק
+                        </button>
+                        <button
+                          disabled={
+                            busy || !assigned.some((a) => !a.employee_id)
+                          }
+                          onClick={() =>
+                            void run(() =>
+                              commitChanges(planWeek(data, week, "fill")),
+                            )
+                          }
+                        >
+                          שיבוץ אוטומטי
+                        </button>
+                      </>
                     )}
                     {isAdmin && version && (
                       <button
+                        className={
+                          version.status === "published" ? "" : "primary"
+                        }
                         disabled={busy}
                         onClick={() =>
                           void run(async () => {
@@ -1233,21 +1235,264 @@ export default function Workspace({
                                   : "publish",
                               week,
                             });
+                            setLastUndo(null);
                             setNotice(
-                              demo
-                                ? "מצב סידור ההדגמה עודכן בדפדפן הזה בלבד"
-                                : "מצב הסידור עודכן",
+                              version.status === "published"
+                                ? "הסידור פתוח לעריכה"
+                                : "הסידור פורסם. גם משמרות פנויות נשארות בסידור.",
                             );
                           })
                         }
                       >
                         {version.status === "published"
-                          ? "פתיחה מחדש"
+                          ? "פתיחה לעריכה"
                           : "פרסום סידור"}
                       </button>
                     )}
+                    {isAdmin && version && (
+                      <button
+                        disabled={busy}
+                        onClick={() => setArchivePrompt(true)}
+                      >
+                        מחיקת סידור
+                      </button>
+                    )}
+                    {isAdmin && archived && (
+                      <button
+                        className="primary"
+                        disabled={busy}
+                        onClick={() => void run(() => lifecycle("restore"))}
+                      >
+                        שחזור סידור
+                      </button>
+                    )}
+                    {lastUndo?.week === week && version?.status === "draft" && (
+                      <button
+                        disabled={busy}
+                        onClick={() =>
+                          void run(async () => {
+                            await commitChanges(
+                              lastUndo.operations,
+                              false,
+                              lastUndo.revision,
+                            );
+                            setLastUndo(null);
+                            setNotice("הפעולה האחרונה בוטלה");
+                          })
+                        }
+                      >
+                        ביטול הפעולה האחרונה
+                      </button>
+                    )}
                   </div>
+                  {!archived && version?.status !== "published" && (
+                    <details className="planner-more">
+                      <summary>אפשרויות נוספות לשבוע</summary>
+                      <div className="row">
+                        <button
+                          disabled={
+                            busy || !assigned.some((a) => a.employee_id)
+                          }
+                          onClick={() =>
+                            void run(() =>
+                              commitChanges(
+                                assigned
+                                  .filter((a) => a.employee_id)
+                                  .map((a) => ({
+                                    ...a,
+                                    kind: "update",
+                                    employee_id: null,
+                                  })),
+                              ),
+                            )
+                          }
+                        >
+                          ניקוי שיבוצים בלבד
+                        </button>
+                        <button
+                          disabled={busy}
+                          onClick={() =>
+                            void run(() =>
+                              commitChanges(planWeek(data, week, "open")),
+                            )
+                          }
+                        >
+                          יצירת שבוע ללא שיבוץ
+                        </button>
+                        <button
+                          disabled={busy || !!assigned.length}
+                          onClick={() =>
+                            void run(() =>
+                              commitChanges(copyPreviousWeek(data, week)),
+                            )
+                          }
+                        >
+                          העתקת השבוע הקודם
+                        </button>
+                      </div>
+                    </details>
+                  )}
+                  <small>
+                    {archived
+                      ? "הסידור בסל המחזור. שחזור יחזיר את כל המשמרות כטיוטה."
+                      : "המערכת בודקת הכשרות וזמינות. כשאין עובד מתאים, המשמרת נשארת פנויה. אפשר לשנות הכול ידנית."}
+                  </small>
+                </section>
+              )}
+              <section className="panel schedule-panel">
+                <div className="toolbar">
+                  <div className="row">
+                    <button
+                      aria-label="שבוע קודם"
+                      onClick={() => setWeek(addDays(week, -7))}
+                    >
+                      <ChevronRight size={18} />
+                    </button>
+                    <h2>
+                      {new Intl.DateTimeFormat("he-IL", {
+                        day: "numeric",
+                        month: "long",
+                      }).format(new Date(week + "T12:00:00Z"))}{" "}
+                      –{" "}
+                      {new Intl.DateTimeFormat("he-IL", {
+                        day: "numeric",
+                        month: "long",
+                        year: "numeric",
+                      }).format(new Date(addDays(week, 6) + "T12:00:00Z"))}
+                    </h2>
+                    <button
+                      aria-label="שבוע הבא"
+                      onClick={() => setWeek(addDays(week, 7))}
+                    >
+                      <ChevronLeft size={18} />
+                    </button>
+                    <button onClick={() => setWeek(sunday())}>השבוע</button>
+                    <span className="badge">
+                      {archived
+                        ? "בסל המחזור"
+                        : version?.status === "published"
+                          ? "פורסם"
+                          : version
+                            ? "טיוטה"
+                            : "טרם נוצר"}
+                    </span>
+                  </div>
+                  <details className="planner-tools">
+                    <summary>ייצוא וייבוא</summary>
+                    <div className="row">
+                      <button onClick={() => void run(exportExcel)}>
+                        <Download size={16} /> Excel
+                      </button>
+                      <label className="button">
+                        <Upload size={16} /> ייבוא
+                        <input
+                          type="file"
+                          hidden
+                          accept=".csv,.xlsx"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file)
+                              void run(async () => {
+                                if (file.size > 2_000_000)
+                                  throw new Error("גודל קובץ מרבי: 2MB");
+                                const { parseWorkbook } =
+                                  await import("@/lib/spreadsheet");
+                                const rows = await parseWorkbook(file);
+                                if (rows.length > 100)
+                                  throw new Error("עד 100 שורות בייבוא אחד");
+                                setImportRows(rows);
+                                setMapping({});
+                              });
+                            e.target.value = "";
+                          }}
+                        />
+                      </label>
+                      <button onClick={() => window.print()} aria-label="הדפסה">
+                        <Printer size={17} />
+                      </button>
+                    </div>
+                  </details>
                 </div>
+                <details className="planner-filter">
+                  <summary>סינון ותצוגות נוספות</summary>
+                  <div className="toolbar filters">
+                    <div className="row">
+                      <select
+                        aria-label="מחלקה"
+                        value={filter}
+                        onChange={(e) => setFilter(e.target.value)}
+                      >
+                        <option value="">כל המחלקות</option>
+                        {data.departments.map((d) => (
+                          <option value={d.id} key={d.id}>
+                            {String(d.name)}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        aria-label="עובד"
+                        value={employeeFilter}
+                        onChange={(e) => setEmployeeFilter(e.target.value)}
+                      >
+                        <option value="">כל העובדים</option>
+                        {data.employees.map((d) => (
+                          <option value={d.id} key={d.id}>
+                            {String(d.name)}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        aria-label="אתר"
+                        value={siteFilter}
+                        onChange={(e) => setSiteFilter(e.target.value)}
+                      >
+                        <option value="">כל האתרים</option>
+                        {data.sites.map((d) => (
+                          <option value={d.id} key={d.id}>
+                            {String(d.name)}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="row">
+                      <select
+                        aria-label="תצוגה"
+                        value={view}
+                        onChange={(e) => setView(e.target.value)}
+                      >
+                        <option value="week">שבוע</option>
+                        <option value="month">חודש</option>
+                        <option value="employee">לפי עובד</option>
+                      </select>
+                      {canEdit && version?.status === "draft" && (
+                        <button
+                          onClick={() =>
+                            openEntity("swap", "החלפת עובדים בין משמרות", [
+                              selectField(
+                                "first",
+                                "משמרת ראשונה",
+                                assigned.map((a) => ({
+                                  id: a.id,
+                                  name: `${name("employees", a.employee_id)} · ${localDate(a.starts_at)} ${time(a.starts_at)}`,
+                                })),
+                              ),
+                              selectField(
+                                "second",
+                                "משמרת שנייה",
+                                assigned.map((a) => ({
+                                  id: a.id,
+                                  name: `${name("employees", a.employee_id)} · ${localDate(a.starts_at)} ${time(a.starts_at)}`,
+                                })),
+                              ),
+                            ])
+                          }
+                        >
+                          החלפה
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </details>
                 {view === "week" ? (
                   <div className="week-grid">
                     {days.map((d, i) => {
@@ -1291,6 +1536,19 @@ export default function Workspace({
                                 a.starts_at.localeCompare(b.starts_at),
                               )
                               .map(renderCard)}
+                            {canEdit &&
+                              !archived &&
+                              version?.status !== "published" && (
+                                <button
+                                  className="add-day-shift"
+                                  onClick={() => {
+                                    setShiftDate(addDays(week, i));
+                                    setEditor(true);
+                                  }}
+                                >
+                                  + משמרת
+                                </button>
+                              )}
                             {!filtered.some(
                               (a) => localDate(a.starts_at) === day,
                             ) && <span className="no-shifts">אין משמרות</span>}
@@ -1318,6 +1576,11 @@ export default function Workspace({
                           {displayData.shift_assignments
                             .filter(
                               (a) =>
+                                !data.schedule_versions.some(
+                                  (v) =>
+                                    v.id === a.version_id &&
+                                    v.status === "archived",
+                                ) &&
                                 localDate(a.starts_at) === day &&
                                 (!filter || a.department_id === filter) &&
                                 (!siteFilter || a.site_id === siteFilter) &&
@@ -1356,7 +1619,7 @@ export default function Workspace({
                     <i className="dot" />
                     {demoEmployee
                       ? "צפייה בסידור אישי שפורסם"
-                      : "גרירה יוצרת תצוגה מקדימה לאישור"}
+                      : "בחירת עובד בכרטיס שומרת מיד · אפשר להשאיר משמרת פנויה"}
                   </span>
                   <span>שעות לפי שעון ישראל · סוף משמרת לילה ביום הבא</span>
                 </div>
@@ -1957,83 +2220,77 @@ export default function Workspace({
           </footer>
         </div>
       </main>
+      {archivePrompt && (
+        <Modal
+          title="העברת הסידור לסל המחזור"
+          close={() => !busy && setArchivePrompt(false)}
+        >
+          <p>
+            כל {assigned.length} המשמרות והשיבוצים של השבוע יוסתרו. אפשר לשחזר
+            אותם בשלמותם, גם אחרי רענון. עובדים לא יראו את הסידור עד שישוחזר
+            ויפורסם מחדש.
+          </p>
+          {error && (
+            <p className="error" role="alert">
+              {error}
+            </p>
+          )}
+          <div className="row">
+            <button
+              className="danger compact"
+              disabled={busy}
+              onClick={() => void run(() => lifecycle("archive"))}
+            >
+              העברה לסל המחזור
+            </button>
+            <button disabled={busy} onClick={() => setArchivePrompt(false)}>
+              ביטול
+            </button>
+          </div>
+        </Modal>
+      )}
       {editor && (
         <Modal
-          title={editor === true ? "הוספת משמרת" : "פרטי משמרת"}
+          title={editor === true || !editor.id ? "הוספת משמרת" : "עריכת משמרת"}
           close={() => setEditor(null)}
         >
-          {canEdit && (!version || version.status === "draft") ? (
-            <>
-              <p className="muted">
-                סיום מוקדם משעת ההתחלה פירושו סיום ביום הבא. משמרת ללא עובד
-                תישאר פתוחה.
-              </p>
-              {data.shift_templates.some((t) => t.confirmed) && (
-                <p className="muted">
-                  תבניות מאומתות:{" "}
-                  {data.shift_templates
-                    .filter((t) => t.confirmed)
-                    .map((t) => `${t.name} ${t.start_time}–${t.end_time}`)
-                    .join(" · ")}
-                </p>
-              )}
-              {editor === true && (
-                <label>
-                  תבנית מאומתת
-                  <select
-                    value={template}
-                    onChange={(e) => setTemplate(e.target.value)}
-                  >
-                    <option value="">שעות מותאמות</option>
-                    {data.shift_templates
-                      .filter((t) => t.confirmed)
-                      .map((t) => (
-                        <option key={t.id} value={t.id}>
-                          {String(t.name)} ·{" "}
-                          {name("departments", t.department_id)}
-                        </option>
-                      ))}
-                  </select>
-                </label>
-              )}
-              <EntityForm
-                key={template}
-                fields={assignmentFields}
-                initial={initialShift}
-                onSubmit={async (v) => {
-                  await propose([
-                    {
-                      kind: editor === true ? "create" : "update",
-                      ...(editor === true ? {} : { id: editor.id }),
-                      department_id: v.department_id,
-                      site_id: v.site_id,
-                      role_id: v.role_id,
-                      employee_id: v.employee_id || null,
-                      ...interval(v.date, v.start, v.end),
-                    } as Operation,
-                  ]);
+          {canEdit && !archived && version?.status !== "published" ? (
+            <ShiftEditor
+              key={
+                editor === true
+                  ? `new-${shiftDate}-${week}`
+                  : editor.id || "copy"
+              }
+              data={data}
+              shift={editor}
+              week={week}
+              date={shiftDate || week}
+              onSave={async (op) => {
+                await commitChanges([op]);
+                setEditor(null);
+              }}
+              onDelete={async () => {
+                if (editor !== true) {
+                  await commitChanges([{ kind: "delete", id: editor.id }]);
                   setEditor(null);
-                }}
-              />
-              {editor !== true && (
-                <button
-                  className="danger"
-                  onClick={() =>
-                    void run(async () => {
-                      await propose([{ kind: "delete", id: editor.id }]);
-                      setEditor(null);
-                    })
-                  }
-                >
-                  מחיקת משמרת…
-                </button>
-              )}
-            </>
+                }
+              }}
+              onCopy={(shift) => {
+                const day = localDate(shift.starts_at);
+                const next =
+                  addDays(day, 1) > addDays(week, 6) ? day : addDays(day, 1);
+                setEditor({
+                  ...shift,
+                  id: "",
+                  employee_id: null,
+                  ...interval(next, time(shift.starts_at), time(shift.ends_at)),
+                });
+              }}
+            />
           ) : (
             <p>
-              נדרשת הרשאת עריכה וסידור במצב טיוטה.{" "}
-              {editor !== true &&
-                `${name("employees", editor.employee_id)} · ${time(editor.starts_at)}–${time(editor.ends_at)}`}
+              הסידור סגור לעריכה. מנהל ראשי יכול לפתוח אותו בכפתור „פתיחה
+              לעריכה”.
             </p>
           )}
         </Modal>

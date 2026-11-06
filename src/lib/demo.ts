@@ -241,7 +241,12 @@ function validate(data: Data, assignments: Assignment[], version: Row) {
     )
       throw new Error("לעובד אין הכשרה לתפקיד ולמחלקה שנבחרו");
     for (const other of assignments.filter(
-      (b) => b.id !== a.id && b.employee_id === a.employee_id,
+      (b) =>
+        b.id !== a.id &&
+        b.employee_id === a.employee_id &&
+        !data.schedule_versions.some(
+          (v) => v.id === b.version_id && v.status === "archived",
+        ),
     )) {
       if (overlaps(a, other))
         throw new Error("לעובד יש משמרת חופפת. יש לבחור עובד או שעות אחרות");
@@ -382,14 +387,42 @@ export async function demoCommand(
         "preview",
         "confirm",
         "cancel",
+        "archive",
+        "restore",
       ]),
       week: z.iso.date().optional(),
+      revision: z.number().int().optional(),
       version: z.uuid().optional(),
       id: z.uuid().optional(),
       operations: z.array(operationSchema).min(1).max(100).optional(),
     })
     .parse(body);
   let result: unknown = { ok: true };
+  if (input.action === "archive" || input.action === "restore") {
+    const version = data.schedule_versions.find(
+      (v) => v.week_start === input.week,
+    );
+    if (!version || version.revision !== input.revision)
+      throw new Error("הסידור השתנה. רעננו ונסו שוב");
+    if ((input.action === "archive") === (version.status === "archived"))
+      throw new Error("מצב הסידור כבר השתנה");
+    const before = { ...version };
+    if (input.action === "restore")
+      validate(data, data.shift_assignments, version);
+    version.status = input.action === "archive" ? "archived" : "draft";
+    version.revision = Number(version.revision) + 1;
+    store.pending = store.pending.filter((p) => p.version !== version.id);
+    audit(
+      store,
+      input.action === "archive"
+        ? "העברת סידור לסל המחזור"
+        : "שחזור סידור כטיוטה",
+      before,
+      version,
+    );
+    write(store);
+    return { ok: true };
+  }
   if (
     input.action === "create" ||
     input.action === "publish" ||
@@ -403,6 +436,8 @@ export async function demoCommand(
     let version = data.schedule_versions.find(
       (v) => v.week_start === input.week,
     );
+    if (version?.status === "archived")
+      throw new Error("יש לשחזר את הסידור מסל המחזור תחילה");
     if (input.action === "create") {
       if (!version) {
         version = {
@@ -489,6 +524,7 @@ export async function demoCommand(
       validate(data, assignments, version);
       data.shift_assignments = assignments;
       version.revision = Number(version.revision) + 1;
+      result = pending.changes;
       pending.changes.forEach((c) =>
         audit(store, "שינוי משמרת בהדגמה", c.before, c.after),
       );

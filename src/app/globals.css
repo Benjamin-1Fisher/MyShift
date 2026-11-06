@@ -1563,3 +1563,235 @@ button:disabled {
     font-size: 11px;
   }
 }
+
+/* Everyday planning: direct actions first, advanced tools on demand. */
+.planner-actions {
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 22px;
+  margin-bottom: 20px;
+}
+.planner-actions > div:first-child {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 15px;
+}
+.planner-actions p {
+  margin: 0;
+  color: #65748b;
+  font-size: 13px;
+}
+.planner-actions > small {
+  display: block;
+  color: #758297;
+  line-height: 1.8;
+  margin-top: 15px;
+}
+.planner-more,
+.planner-filter,
+.planner-tools {
+  color: #69768a;
+  font-size: 12px;
+}
+.planner-more {
+  margin-top: 14px;
+}
+.planner-more > div {
+  padding-top: 12px;
+}
+summary {
+  cursor: pointer;
+}
+.planner-filter > summary {
+  padding: 15px 22px;
+  border-block: 1px solid var(--line);
+}
+.planner-tools > div {
+  padding-top: 10px;
+}
+.nav-extra {
+  margin-top: 18px;
+  font-size: 12px;
+}
+.nav-extra > summary {
+  padding: 12px 15px;
+  color: #a3b0c6;
+}
+.shift {
+  display: block;
+  padding: 8px;
+  cursor: default;
+}
+.shift-main {
+  width: 100%;
+  display: block;
+  text-align: right;
+  padding: 5px;
+  border: 0;
+  background: transparent;
+  border-radius: 6px;
+  box-shadow: none;
+}
+.shift-main:hover {
+  background: #eee8fa;
+}
+.shift-main strong,
+.shift-main small,
+.shift-time {
+  display: block;
+}
+.shift-main strong {
+  margin: 7px 0;
+  font-size: 13px;
+}
+.shift-main small {
+  line-height: 1.8;
+}
+.shift-time {
+  text-align: right;
+  font-size: 11px;
+  color: #6c5f88;
+}
+.shift > select {
+  width: 100%;
+  padding: 7px 3px;
+  font-size: 11px;
+  border-color: #e5def4;
+  margin-top: 7px;
+  background: #fff;
+}
+.shift.open .shift-main strong {
+  color: #996623;
+}
+.add-day-shift {
+  width: 100%;
+  background: transparent;
+  border: 1px dashed #c5b9e4;
+  color: #7b67b3;
+  margin-top: 10px;
+  font-size: 12px;
+}
+.shift-presets {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin: 12px 0 24px;
+}
+.shift-presets button {
+  flex-direction: column;
+  gap: 7px;
+}
+.shift-presets .selected {
+  border-color: #8d76d7;
+  color: #6f55b9;
+  background: #f2edff;
+}
+.shift-presets small {
+  font-size: 11px;
+}
+.assignment-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin-top: 22px;
+  font-weight: bold;
+}
+.simple-shift-form > .muted {
+  font-size: 12px;
+}
+.danger.compact {
+  margin: 0;
+}
+@media (max-width: 760px) {
+  .planner-actions {
+    padding: 17px;
+  }
+  .planner-actions > div:first-child {
+    display: block;
+  }
+  .planner-actions p {
+    margin-top: 7px;
+  }
+  .planner-actions .row > button {
+    flex: 1 1 135px;
+    font-size: 12px;
+  }
+  .week-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    min-width: 0;
+  }
+  .day-column {
+    min-height: 0;
+    border-inline-end: 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .day-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 13px 18px;
+    text-align: right;
+  }
+  .day-shifts {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    padding: 14px;
+  }
+  .day-shifts .shift {
+    margin: 0;
+  }
+  .day-shifts .add-day-shift {
+    grid-column: 1/-1;
+  }
+  .schedule-panel > .toolbar h2 {
+    font-size: 14px;
+  }
+  .shift-presets {
+    gap: 6px;
+  }
+  .shift-presets button {
+    padding: 10px 5px;
+  }
+}
+.planning .topbar {
+  height: 58px;
+}
+.planning .content {
+  padding-top: 20px;
+}
+.planning .page-heading {
+  margin-bottom: 16px;
+}
+.planning .page-heading .eyebrow,
+.planning .page-heading p {
+  display: none;
+}
+.planning .page-heading h1 {
+  font-size: 25px;
+  margin: 0;
+}
+.planning .planner-actions {
+  padding: 16px 20px;
+  margin-bottom: 15px;
+}
+.planning .planner-actions > div:first-child {
+  margin-bottom: 10px;
+}
+.planning .planner-actions > small {
+  margin-top: 8px;
+  font-size: 11px;
+}
+.planning .planner-more {
+  margin-top: 10px;
+}
+.planning .schedule-panel > .toolbar {
+  padding: 15px 20px;
+}
+.planning .planner-filter > summary {
+  padding: 10px 20px;
+}

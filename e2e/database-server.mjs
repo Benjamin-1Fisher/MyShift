@@ -46,6 +46,7 @@ const functions = {
   save_employee: ["data"],
   initialize_workspace: ["site_name"],
   schedule_action: ["week", "action"],
+  schedule_lifecycle: ["week", "action", "expected_revision"],
   preview_change: ["vid", "ops"],
   confirm_change: ["rid"],
   cancel_change: ["rid"],
