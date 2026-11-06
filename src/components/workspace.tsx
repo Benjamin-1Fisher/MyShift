@@ -1,6 +1,13 @@
 "use client";
 import Link from "next/link";
 import ShiftEditor from "./shift-editor";
+import WeeklyAvailabilityEditor from "./weekly-availability-editor";
+import {
+  normalizeWeeklyAvailability,
+  weeklyAvailabilitySchema,
+  weeklyAvailabilitySummary,
+  type WeeklyAvailability,
+} from "@/lib/weekly-availability";
 import { canAssign, planWeek, copyPreviousWeek } from "@/lib/planner";
 import { useRouter } from "next/navigation";
 import {
@@ -125,17 +132,29 @@ function EntityForm({
   initial,
   onSubmit,
   submitLabel = "שמירה",
+  employeeForm = false,
+  initialAvailability,
 }: {
   submitLabel?: string;
   fields: Field[];
   initial?: Record<string, string>;
   onSubmit: (v: Record<string, string>) => Promise<void>;
+  employeeForm?: boolean;
+  initialAvailability?: unknown;
 }) {
   const [selections, setSelections] = useState<Record<string, string>>(
     initial || {},
   );
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [originalAvailability] = useState<WeeklyAvailability>(() => {
+    const parsed = weeklyAvailabilitySchema.safeParse(
+      initialAvailability ?? null,
+    );
+    return parsed.success ? normalizeWeeklyAvailability(parsed.data) : null;
+  });
+  const [weeklyAvailability, setWeeklyAvailability] =
+    useState(originalAvailability);
   return (
     <form
       onSubmit={async (e: FormEvent<HTMLFormElement>) => {
@@ -143,12 +162,23 @@ function EntityForm({
         setBusy(true);
         setError("");
         try {
-          await onSubmit(
-            Object.fromEntries(new FormData(e.currentTarget)) as Record<
-              string,
-              string
-            >,
-          );
+          const values = Object.fromEntries(
+            new FormData(e.currentTarget),
+          ) as Record<string, string>;
+          if (
+            employeeForm &&
+            JSON.stringify(weeklyAvailability) !==
+              JSON.stringify(originalAvailability)
+          ) {
+            const parsed =
+              weeklyAvailabilitySchema.safeParse(weeklyAvailability);
+            if (!parsed.success)
+              throw new Error("יש לבחור לפחות משמרת אחת או לבחור הכול");
+            values.weekly_availability = JSON.stringify(
+              normalizeWeeklyAvailability(parsed.data),
+            );
+          }
+          await onSubmit(values);
         } catch (e) {
           setError((e as Error).message);
         } finally {
@@ -209,6 +239,13 @@ function EntityForm({
           </label>
         ))}
       </div>
+      {employeeForm && (
+        <WeeklyAvailabilityEditor
+          value={weeklyAvailability}
+          onChange={setWeeklyAvailability}
+          disabled={busy}
+        />
+      )}
       {error && (
         <p role="alert" className="error">
           {error}
@@ -655,6 +692,8 @@ export default function Workspace({
     if (entity.kind === "employee") {
       v.active = values.active !== "false";
       v.user_id = values.user_id || null;
+      if (values.weekly_availability !== undefined)
+        v.weekly_availability = JSON.parse(values.weekly_availability);
     }
     if (entity.kind === "template") {
       v.confirmed = values.confirmed === "true";
@@ -2051,6 +2090,11 @@ export default function Workspace({
                           {String(e.name).slice(0, 1)}
                         </span>
                         {String(e.name)}
+                        {e.weekly_availability != null && (
+                          <small className="employee-weekly-summary">
+                            {weeklyAvailabilitySummary(e.weekly_availability)}
+                          </small>
+                        )}
                       </td>
                       <td>
                         {data.employee_departments
@@ -2818,6 +2862,11 @@ export default function Workspace({
             fields={entity.fields}
             initial={entity.initial}
             onSubmit={saveEntity}
+            employeeForm={entity.kind === "employee"}
+            initialAvailability={
+              data.employees.find((e) => e.id === entity.initial?.id)
+                ?.weekly_availability
+            }
           />
         </Modal>
       )}

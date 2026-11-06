@@ -1,5 +1,5 @@
 import { PGlite } from "@electric-sql/pglite";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { beforeAll, afterAll, it, expect } from "vitest";
 let db: PGlite;
 const admin = "10000000-0000-4000-8000-000000000001",
@@ -58,22 +58,8 @@ beforeAll(async () => {
   await db.exec(
     `create role anon; create role authenticated; create schema auth; create table auth.users(id uuid primary key,raw_user_meta_data jsonb default '{}'); create function auth.uid() returns uuid language sql as $$select nullif(current_setting('app.uid',true),'')::uuid$$;grant usage on schema auth to authenticated;grant execute on function auth.uid() to authenticated;`,
   );
-  await db.exec(readFileSync("supabase/migrations/001_myshift.sql", "utf8"));
-  await db.exec(
-    readFileSync("supabase/migrations/002_ai_rate_limit.sql", "utf8"),
-  );
-  await db.exec(
-    readFileSync("supabase/migrations/003_simple_onboarding.sql", "utf8"),
-  );
-  await db.exec(
-    readFileSync("supabase/migrations/004_schedule_trash.sql", "utf8"),
-  );
-  await db.exec(
-    readFileSync("supabase/migrations/005_create_after_archive.sql", "utf8"),
-  );
-  await db.exec(
-    readFileSync("supabase/migrations/006_department_schedules.sql", "utf8"),
-  );
+  for (const file of readdirSync("supabase/migrations").sort())
+    await db.exec(readFileSync(`supabase/migrations/${file}`, "utf8"));
   await db.query("insert into auth.users(id) values($1),($2),($3)", [
     admin,
     manager,

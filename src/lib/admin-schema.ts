@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { weeklyAvailabilitySchema } from "./weekly-availability";
 const id = { id: z.uuid().optional() };
 const name = z.string().trim().min(1).max(100);
 const base = { ...id, name };
@@ -26,6 +27,7 @@ export const adminSchema = z.discriminatedUnion("kind", [
       ...base,
       active: z.boolean(),
       user_id: z.uuid().nullable(),
+      weekly_availability: weeklyAvailabilitySchema.optional(),
       department_id: z.uuid().optional(),
       role_id: z.uuid().optional(),
     }),

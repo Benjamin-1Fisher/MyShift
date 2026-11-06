@@ -9,6 +9,7 @@ import {
   type Data,
   type Operation,
 } from "./domain";
+import { isWeeklyAvailable } from "./weekly-availability";
 
 export function canAssign(
   data: Data,
@@ -18,6 +19,7 @@ export function canAssign(
 ) {
   if (!data.employees.some((e) => e.id === employeeId && e.active))
     return false;
+  if (!isWeeklyAvailable(data, shift, employeeId)) return false;
   if (
     !data.employee_departments.some(
       (m) =>

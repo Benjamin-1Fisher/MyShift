@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { adminSchema } from "./admin-schema";
+import { isWeeklyAvailable } from "./weekly-availability";
 import {
   addDays,
   availabilityWindows,
@@ -337,6 +338,8 @@ function validate(data: Data, assignments: Assignment[], version: Row) {
       if (gap < Number(data.settings[0]?.min_rest_hours ?? 0))
         throw new Error("לא נשמר זמן המנוחה המוגדר בין המשמרות");
     }
+    if (!isWeeklyAvailable(data, a, a.employee_id))
+      throw new Error("המשמרת מחוץ לזמינות הקבועה של העובד");
     const windows = availabilityWindows(data, a.employee_id, a.starts_at);
     if (
       windows.some(

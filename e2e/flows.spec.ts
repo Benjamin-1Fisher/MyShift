@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import type { Data } from "../src/lib/domain";
 test("organization: direct save, undo copied shift, publish, archive and restore", async ({
   page,
 }) => {
@@ -95,4 +96,109 @@ test("organization: direct save, undo copied shift, publish, archive and restore
   await page.getByRole("button", { name: "יומן פעילות", exact: true }).click();
   await expect(page.locator("details.audit")).not.toHaveCount(0);
   expect(errors).toEqual([]);
+});
+
+test("organization saves weekly availability atomically and enforces it through the API", async ({
+  page,
+}) => {
+  await page.goto("/app");
+  await page.getByLabel("דוא״ל").fill("admin@example.test");
+  await page.getByLabel("סיסמה").fill("test-password-only");
+  await page.getByRole("button", { name: "כניסה", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "עובדים", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "עובדים", exact: true }).click();
+  await page.getByRole("button", { name: "עובד חדש", exact: true }).click();
+  const form = page.getByRole("dialog");
+  await form.getByLabel("שם תצוגה", { exact: true }).fill("עובד לילה בשישי");
+  await form
+    .getByLabel("מחלקה", { exact: true })
+    .selectOption({ label: "סיירים" });
+  await form.getByLabel("תפקיד / הכשרה").selectOption({ label: "סיירים" });
+  await form
+    .locator("summary")
+    .filter({ hasText: "זמינות קבועה למשמרות" })
+    .click();
+  await form.getByRole("button", { name: "ניקוי בחירה", exact: true }).click();
+  await form.getByLabel("לילה ביום שישי", { exact: true }).check();
+  await form.getByRole("button", { name: "שמירה", exact: true }).click();
+  await expect(form).toHaveCount(0);
+  await page.reload();
+  await page.getByRole("button", { name: "עובדים", exact: true }).click();
+  await expect(
+    page.getByRole("row").filter({ hasText: "עובד לילה בשישי" }),
+  ).toContainText("שישי: לילה");
+  const { data }: { data: Data } = await (
+    await page.request.get("/api/data")
+  ).json();
+  const employee = data.employees.find((e) => e.name === "עובד לילה בשישי")!;
+  expect(employee.weekly_availability).toEqual([
+    [],
+    [],
+    [],
+    [],
+    [],
+    ["night"],
+    [],
+  ]);
+  const membership = data.employee_departments.find(
+    (m) => m.employee_id === employee.id,
+  )!;
+  const headers = { Origin: "http://localhost:3002" };
+  const created = await page.request.post("/api/change", {
+    headers,
+    data: {
+      action: "create",
+      week: "2026-11-08",
+      department_id: membership.department_id,
+    },
+  });
+  expect(created.ok()).toBe(true);
+  const version = await created.json();
+  const operation = {
+    kind: "create",
+    employee_id: employee.id,
+    department_id: membership.department_id,
+    role_id: membership.role_id,
+    site_id: data.sites[0].id,
+    starts_at: "2026-11-13T05:00:00Z",
+    ends_at: "2026-11-13T13:00:00Z",
+  };
+  const blocked = await page.request.post("/api/change", {
+    headers,
+    data: { action: "preview", version, operations: [operation] },
+  });
+  expect(blocked.status()).toBe(400);
+  expect((await blocked.json()).error).toContain("זמינות הקבועה");
+  const allowed = await page.request.post("/api/change", {
+    headers,
+    data: {
+      action: "preview",
+      version,
+      operations: [
+        {
+          ...operation,
+          starts_at: "2026-11-13T21:00:00Z",
+          ends_at: "2026-11-14T05:00:00Z",
+        },
+      ],
+    },
+  });
+  expect(allowed.ok()).toBe(true);
+  const preview = await allowed.json();
+  expect(
+    (
+      await page.request.post("/api/change", {
+        headers,
+        data: { action: "confirm", id: preview.id },
+      })
+    ).ok(),
+  ).toBe(true);
+  const saved: { data: Data } = await (
+    await page.request.get("/api/data")
+  ).json();
+  expect(
+    saved.data.shift_assignments.filter((a) => a.employee_id === employee.id),
+  ).toHaveLength(1);
 });

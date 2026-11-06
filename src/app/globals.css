@@ -1901,6 +1901,92 @@ summary {
 .employee-filters {
   padding: 14px 0;
 }
+.weekly-availability {
+  margin: 0 0 18px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fafbfd;
+}
+.weekly-availability > summary {
+  padding: 12px 14px;
+  color: var(--ink);
+}
+.weekly-availability > summary span {
+  display: block;
+  margin: 4px 16px 0 0;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+.weekly-availability > p {
+  padding: 0 14px;
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+.weekly-availability fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0 10px 10px;
+  min-width: 0;
+}
+.weekly-presets {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.weekly-presets button {
+  min-height: 32px;
+  padding: 5px 10px;
+  font-size: 0.875rem;
+}
+.weekly-presets [aria-pressed="true"] {
+  background: #f0edf9;
+  border-color: #b9a9e9;
+  color: #53418c;
+}
+.weekly-availability-grid {
+  table-layout: fixed;
+  background: white;
+}
+.weekly-availability-grid th,
+.weekly-availability-grid td {
+  padding: 0;
+  text-align: center;
+  white-space: normal;
+  color: var(--ink);
+  font-size: 0.9375rem;
+}
+.weekly-availability-grid th {
+  font-weight: 600;
+}
+.weekly-availability-grid label {
+  display: flex;
+  min-height: 38px;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.weekly-availability-grid label:hover {
+  background: #f0edf9;
+}
+.weekly-availability-grid input[type="checkbox"] {
+  width: 17px;
+  height: 17px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--purple);
+}
+.employee-weekly-summary {
+  display: block;
+  color: var(--muted);
+  font-size: 0.875rem;
+  margin-top: 5px;
+  white-space: normal;
+}
 .employee-filters label {
   display: grid;
   gap: 6px;

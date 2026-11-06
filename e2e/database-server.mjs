@@ -45,6 +45,7 @@ const tables = new Set([
 const functions = {
   manage_entity: ["kind", "data"],
   save_employee: ["data"],
+  save_employee_with_availability: ["data"],
   initialize_workspace: ["site_name"],
   schedule_action: ["week", "action"],
   department_schedule_action: ["week", "action", "department"],

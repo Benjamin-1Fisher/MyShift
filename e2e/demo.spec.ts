@@ -265,6 +265,145 @@ test("phone planning is readable without horizontal scrolling", async ({
   ).toBeVisible();
 });
 
+test("employee form saves Friday-night availability and respects it in automatic and manual staffing", async ({
+  page,
+}) => {
+  test.setTimeout(60000);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto("/demo");
+  await page.getByRole("button", { name: "עובדים", exact: true }).click();
+  await page.getByRole("button", { name: "עובד חדש", exact: true }).click();
+  const form = page.getByRole("dialog");
+  await form.getByLabel("שם תצוגה", { exact: true }).fill("בן זמינות");
+  await form.getByLabel("תפקיד / הכשרה").selectOption({ label: "אחמ״ש" });
+  await form
+    .locator("summary")
+    .filter({ hasText: "זמינות קבועה למשמרות" })
+    .click();
+  await form.getByRole("button", { name: "ניקוי בחירה", exact: true }).click();
+  await form.getByLabel("לילה ביום שישי", { exact: true }).check();
+  await page.screenshot({
+    path: "work/employee-weekly-desktop.png",
+    fullPage: true,
+  });
+  await form.getByRole("button", { name: "שמירה", exact: true }).click();
+  await expect(form).toHaveCount(0);
+  await expect(
+    page.getByRole("row").filter({ hasText: "בן זמינות" }),
+  ).toContainText("שישי: לילה");
+  await page.reload();
+  await page.getByRole("button", { name: "עובדים", exact: true }).click();
+  const row = page.getByRole("row").filter({ hasText: "בן זמינות" });
+  await expect(row).toContainText("שישי: לילה");
+  await row.getByRole("button", { name: "עריכה", exact: true }).click();
+  await form
+    .locator("summary")
+    .filter({ hasText: "זמינות קבועה למשמרות" })
+    .click();
+  await expect(
+    form.getByLabel("לילה ביום שישי", { exact: true }),
+  ).toBeChecked();
+  await expect(
+    form.getByLabel("לילה ביום שבת", { exact: true }),
+  ).not.toBeChecked();
+  await form.getByRole("button", { name: "סגירה", exact: true }).click();
+  await page.getByRole("button", { name: "סידורי עבודה", exact: true }).click();
+  await page.getByRole("button", { name: "שבוע הבא", exact: true }).click();
+  await page
+    .getByRole("button", { name: "יצירת סידור חדש", exact: true })
+    .click();
+  await expect(page.locator(".shift")).toHaveCount(21);
+  const benShifts = page
+    .locator(".shift")
+    .filter({ has: page.locator("strong").filter({ hasText: "בן זמינות" }) });
+  await expect(benShifts).toHaveCount(1);
+  await expect(benShifts.locator(".shift-time")).toHaveText("23:00 – 07:00");
+  await expect(
+    page
+      .locator(".day-column")
+      .filter({ has: benShifts })
+      .locator(".day-header"),
+  ).toContainText("שישי");
+  await page.getByRole("button", { name: "עובדים", exact: true }).click();
+  await row.getByRole("button", { name: "עריכה", exact: true }).click();
+  await form
+    .locator("summary")
+    .filter({ hasText: "זמינות קבועה למשמרות" })
+    .click();
+  await form.getByRole("button", { name: "בוקר בלבד", exact: true }).click();
+  await form.getByRole("button", { name: "שמירה", exact: true }).click();
+  await expect(row).toContainText("בוקר בלבד · כל השבוע");
+  await page.getByRole("button", { name: "הוספת משמרת", exact: true }).click();
+  await form.getByRole("button", { name: /^ערב/ }).click();
+  await expect(
+    form.getByLabel("עובד במשמרת").getByRole("option", { name: /^בן זמינות/ }),
+  ).toBeDisabled();
+  await form.getByRole("button", { name: /^בוקר/ }).click();
+  await expect(
+    form
+      .getByLabel("עובד במשמרת")
+      .getByRole("option", { name: "בן זמינות", exact: true }),
+  ).toBeEnabled();
+});
+
+test("weekly availability is optional, supports quick choices and keeps an empty selection editable on phone", async ({
+  page,
+}) => {
+  await page.goto("/demo");
+  await page.getByRole("button", { name: "עובדים", exact: true }).click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole("button", { name: "עובד חדש", exact: true }).click();
+  const form = page.getByRole("dialog");
+  await form
+    .getByLabel("שם תצוגה", { exact: true })
+    .fill("בדיקת זמינות בטלפון");
+  await form.getByLabel("תפקיד / הכשרה").selectOption({ label: "אחמ״ש" });
+  await expect(
+    form.getByText("כל הימים והמשמרות", { exact: true }),
+  ).toBeVisible();
+  await form
+    .locator("summary")
+    .filter({ hasText: "זמינות קבועה למשמרות" })
+    .click();
+  await form.getByRole("button", { name: "בוקר בלבד", exact: true }).click();
+  await form.getByRole("button", { name: "א׳–ה׳", exact: true }).click();
+  await expect(
+    form.getByLabel("בוקר ביום ראשון", { exact: true }),
+  ).toBeChecked();
+  await expect(
+    form.getByLabel("ערב ביום ראשון", { exact: true }),
+  ).not.toBeChecked();
+  await expect(
+    form.getByLabel("בוקר ביום שישי", { exact: true }),
+  ).not.toBeChecked();
+  expect(await form.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(
+    true,
+  );
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: "work/employee-weekly-mobile.png",
+    fullPage: true,
+  });
+  await form.getByRole("button", { name: "ניקוי בחירה", exact: true }).click();
+  await form.getByRole("button", { name: "שמירה", exact: true }).click();
+  await expect(form.getByRole("alert")).toContainText(
+    "יש לבחור לפחות משמרת אחת",
+  );
+  await expect(form.getByLabel("שם תצוגה", { exact: true })).toHaveValue(
+    "בדיקת זמינות בטלפון",
+  );
+  await form.getByRole("button", { name: "הכול", exact: true }).click();
+  await form.getByRole("button", { name: "שמירה", exact: true }).click();
+  await expect(form).toHaveCount(0);
+  await expect(
+    page.getByRole("row").filter({ hasText: "בדיקת זמינות בטלפון" }),
+  ).toBeVisible();
+});
+
 test("archived legacy week offers fresh creation and keeps both schedules recoverable", async ({
   page,
 }) => {
