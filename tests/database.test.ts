@@ -53,6 +53,9 @@ beforeAll(async () => {
   await db.exec(
     readFileSync("supabase/migrations/004_schedule_trash.sql", "utf8"),
   );
+  await db.exec(
+    readFileSync("supabase/migrations/005_create_after_archive.sql", "utf8"),
+  );
   await db.query("insert into auth.users(id) values($1),($2),($3)", [
     admin,
     manager,
@@ -341,7 +344,7 @@ it("soft-deletes and restores a schedule without losing shifts; guards permissio
   await asUser(admin);
   await expect(
     rpc("schedule_action", ["2026-11-01", "publish"]),
-  ).rejects.toThrow(/לשחזר/);
+  ).rejects.toThrow(/ליצור/);
   await expect(
     rpc("schedule_lifecycle", ["2026-11-01", "restore", rev]),
   ).rejects.toThrow(/השתנה/);
@@ -359,4 +362,77 @@ it("soft-deletes and restores a schedule without losing shifts; guards permissio
       version,
     ]),
   ).toEqual(before);
+});
+
+it("creates a fresh week after deletion and switches recovery without destroying either schedule", async () => {
+  await asUser(admin);
+  const readVersion = async (id: string) =>
+    (
+      await q<{ id: string; status: string; revision: number }>(
+        "select id,status,revision from schedule_versions where id=$1",
+        [id],
+      )
+    )[0];
+  const old = await readVersion(version);
+  const original = await q(
+    "select * from shift_assignments where version_id=$1 order by id",
+    [version],
+  );
+  await rpc("schedule_recover", [
+    version,
+    "archive",
+    old.revision,
+    version,
+    old.revision,
+  ]);
+  const archived = await readVersion(version);
+  const fresh = (await rpc("schedule_action", [
+    "2026-11-01",
+    "create",
+  ])) as string;
+  expect(fresh).not.toBe(version);
+  expect(await rpc("schedule_action", ["2026-11-01", "create"])).toBe(fresh);
+  const proposal = (await rpc("preview_change", [
+    fresh,
+    JSON.stringify([op()]),
+  ])) as { id: string };
+  await rpc("confirm_change", [proposal.id]);
+  const current = await readVersion(fresh);
+  const created = await q(
+    "select * from shift_assignments where version_id=$1 order by id",
+    [fresh],
+  );
+  await expect(
+    rpc("schedule_recover", [
+      version,
+      "restore",
+      archived.revision,
+      null,
+      null,
+    ]),
+  ).rejects.toThrow(/השתנה/);
+  await rpc("schedule_recover", [
+    version,
+    "restore",
+    archived.revision,
+    fresh,
+    current.revision,
+  ]);
+  expect((await readVersion(version)).status).toBe("draft");
+  expect((await readVersion(fresh)).status).toBe("archived");
+  expect(
+    await q("select * from shift_assignments where version_id=$1 order by id", [
+      version,
+    ]),
+  ).toEqual(original);
+  expect(
+    await q("select * from shift_assignments where version_id=$1 order by id", [
+      fresh,
+    ]),
+  ).toEqual(created);
+  expect(
+    await q(
+      "select * from schedule_versions where week_start='2026-11-01' and status<>'archived'",
+    ),
+  ).toHaveLength(1);
 });

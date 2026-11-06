@@ -35,6 +35,7 @@ export async function loadData(client: Awaited<ReturnType<typeof db>>) {
       let q = client.from(t).select("*");
       if (t === "audit_logs" || t === "notifications")
         q = q.order("created_at", { ascending: false }).limit(200);
+      else if (t === "schedule_versions") q = q.order("id").limit(5000);
       else q = q.limit(5000);
       const { data, error } = await q;
       if (error) throw new Error(error.message);

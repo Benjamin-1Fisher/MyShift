@@ -66,7 +66,20 @@ test("organization: direct save, undo copied shift, publish, archive and restore
     .click();
   await expect(page.locator(".shift")).toHaveCount(0);
   await page.reload();
-  await page.getByRole("button", { name: "שחזור סידור", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "יצירת סידור חדש", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "הוספת משמרת", exact: true }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "שמירת משמרת", exact: true })
+    .click();
+  await expect(page.locator(".shift.open")).toHaveCount(1);
+  await page.getByText("סידורים שנמחקו (1)", { exact: true }).click();
+  await page
+    .getByRole("button", { name: "שחזור סידור זה", exact: true })
+    .click();
+  await page.getByRole("button", { name: "אישור שחזור", exact: true }).click();
   await expect(page.locator(".shift")).toHaveCount(1);
   await expect(page.getByText("טיוטה", { exact: true })).toBeVisible();
   await page.getByText("ניהול נוסף", { exact: true }).click();

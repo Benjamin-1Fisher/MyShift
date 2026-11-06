@@ -392,6 +392,8 @@ export async function demoCommand(
       ]),
       week: z.iso.date().optional(),
       revision: z.number().int().optional(),
+      active_id: z.uuid().nullable().optional(),
+      active_revision: z.number().int().nullable().optional(),
       version: z.uuid().optional(),
       id: z.uuid().optional(),
       operations: z.array(operationSchema).min(1).max(100).optional(),
@@ -400,16 +402,34 @@ export async function demoCommand(
   let result: unknown = { ok: true };
   if (input.action === "archive" || input.action === "restore") {
     const version = data.schedule_versions.find(
-      (v) => v.week_start === input.week,
+      (v) => v.id === input.id && v.week_start === input.week,
     );
-    if (!version || version.revision !== input.revision)
+    const active = data.schedule_versions.find(
+      (v) => v.week_start === input.week && v.status !== "archived",
+    );
+    if (
+      !version ||
+      version.revision !== input.revision ||
+      (active?.id || null) !== input.active_id ||
+      (active ? Number(active.revision) : null) !== input.active_revision
+    )
       throw new Error("הסידור השתנה. רעננו ונסו שוב");
     if ((input.action === "archive") === (version.status === "archived"))
       throw new Error("מצב הסידור כבר השתנה");
     const before = { ...version };
+    if (input.action === "restore" && active) {
+      const beforeActive = { ...active };
+      active.status = "archived";
+      active.archived_at = new Date().toISOString();
+      active.revision = Number(active.revision) + 1;
+      store.pending = store.pending.filter((p) => p.version !== active.id);
+      audit(store, "שמירת הסידור הנוכחי לפני שחזור", beforeActive, active);
+    }
+    version.status = input.action === "archive" ? "archived" : "draft";
+    version.archived_at =
+      input.action === "archive" ? new Date().toISOString() : null;
     if (input.action === "restore")
       validate(data, data.shift_assignments, version);
-    version.status = input.action === "archive" ? "archived" : "draft";
     version.revision = Number(version.revision) + 1;
     store.pending = store.pending.filter((p) => p.version !== version.id);
     audit(
@@ -434,7 +454,7 @@ export async function demoCommand(
     )
       throw new Error("יש לבחור תחילת שבוע תקינה");
     let version = data.schedule_versions.find(
-      (v) => v.week_start === input.week,
+      (v) => v.week_start === input.week && v.status !== "archived",
     );
     if (version?.status === "archived")
       throw new Error("יש לשחזר את הסידור מסל המחזור תחילה");
@@ -445,6 +465,7 @@ export async function demoCommand(
           week_start: input.week,
           status: "draft",
           revision: 0,
+          created_at: new Date().toISOString(),
         };
         data.schedule_versions.push(version);
       }

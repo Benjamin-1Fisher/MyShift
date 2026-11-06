@@ -35,7 +35,7 @@ export default function ConnectionRequired() {
           <li>
             <strong>התקנת המסד ויצירת מנהל ראשי</strong>
             <p>
-              מריצים את ארבע המיגרציות שבתיקיית supabase/migrations לפי הסדר,
+              מריצים את חמש המיגרציות שבתיקיית supabase/migrations לפי הסדר,
               יוצרים חשבון מנהל ומעניקים לו הרשאה לפי הוראות ההתקנה.
             </p>
           </li>

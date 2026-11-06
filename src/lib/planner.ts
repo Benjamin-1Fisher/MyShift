@@ -68,7 +68,9 @@ export function planWeek(
   week: string,
   mode: "generate" | "fill" | "open",
 ) {
-  const version = data.schedule_versions.find((v) => v.week_start === week);
+  const version = data.schedule_versions.find(
+    (v) => v.week_start === week && v.status !== "archived",
+  );
   if (version && version.status !== "draft")
     throw new Error(
       version.status === "archived"
@@ -185,7 +187,10 @@ export function planWeek(
             (a) =>
               a.employee_id === id &&
               localDate(a.starts_at) >= week &&
-              localDate(a.starts_at) <= addDays(week, 6),
+              localDate(a.starts_at) <= addDays(week, 6) &&
+              !data.schedule_versions.some(
+                (v) => v.id === a.version_id && v.status === "archived",
+              ),
           )
           .reduce((n, a) => n + duration(a), 0);
       current.employee_id =
@@ -208,7 +213,9 @@ export function planWeek(
 }
 
 export function copyPreviousWeek(data: Data, week: string): Operation[] {
-  const target = data.schedule_versions.find((v) => v.week_start === week);
+  const target = data.schedule_versions.find(
+    (v) => v.week_start === week && v.status !== "archived",
+  );
   if (target && target.status !== "draft")
     throw new Error("יש לפתוח את הסידור לעריכה תחילה");
   if (data.shift_assignments.some((a) => a.version_id === target?.id))

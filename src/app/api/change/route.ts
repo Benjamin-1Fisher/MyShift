@@ -5,6 +5,9 @@ import { session, safeError, sameOrigin } from "@/lib/server";
 const schema = z.discriminatedUnion("action", [
   z.object({
     action: z.enum(["archive", "restore"]),
+    id: z.uuid(),
+    active_id: z.uuid().nullable(),
+    active_revision: z.number().int().min(0).nullable(),
     week: z.iso.date(),
     revision: z.number().int().min(0),
   }),
@@ -26,8 +29,10 @@ export async function POST(req: Request) {
     const input = schema.parse(await req.json());
     const result =
       input.action === "archive" || input.action === "restore"
-        ? await client.rpc("schedule_lifecycle", {
-            week: input.week,
+        ? await client.rpc("schedule_recover", {
+            vid: input.id,
+            expected_active_id: input.active_id,
+            expected_active_revision: input.active_revision,
             action: input.action,
             expected_revision: input.revision,
           })

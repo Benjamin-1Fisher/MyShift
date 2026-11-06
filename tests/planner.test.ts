@@ -55,5 +55,5 @@ it("copy never overwrites an existing week or reads a discarded source", () => {
   expect(() => copyPreviousWeek(data, week)).toThrow(/ריק/);
   data.schedule_versions[0].status = "archived";
   expect(() => copyPreviousWeek(data, addDays(week, 7))).toThrow(/אין סידור/);
-  expect(() => planWeek(data, week, "generate")).toThrow(/לשחזר/);
+  expect(planWeek(data, week, "generate")).toHaveLength(21);
 });

@@ -47,6 +47,13 @@ const functions = {
   initialize_workspace: ["site_name"],
   schedule_action: ["week", "action"],
   schedule_lifecycle: ["week", "action", "expected_revision"],
+  schedule_recover: [
+    "vid",
+    "action",
+    "expected_revision",
+    "expected_active_id",
+    "expected_active_revision",
+  ],
   preview_change: ["vid", "ops"],
   confirm_change: ["rid"],
   cancel_change: ["rid"],
@@ -118,7 +125,9 @@ createServer(async (req, res) => {
       const keys = functions[fn];
       if (!keys) throw new Error("unknown function");
       const params = keys.map((k) =>
-        typeof body[k] === "object" ? JSON.stringify(body[k]) : body[k],
+        body[k] !== null && typeof body[k] === "object"
+          ? JSON.stringify(body[k])
+          : body[k],
       );
       return (
         await db.query(

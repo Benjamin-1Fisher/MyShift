@@ -266,6 +266,7 @@ export default function Workspace({
     operations: Operation[];
   } | null>(null);
   const [archivePrompt, setArchivePrompt] = useState(false);
+  const [restorePrompt, setRestorePrompt] = useState<string | null>(null);
   const [editor, setEditor] = useState<Assignment | true | null>(null),
     [entity, setEntity] = useState<{
       kind: string;
@@ -360,9 +361,14 @@ export default function Workspace({
       : data.profiles.find((p) => p.id === userId),
     isAdmin = profile?.role === "admin",
     canEdit = !!profile && profile.role !== "employee";
-  const archived = data.schedule_versions.find(
-    (v) => v.week_start === week && v.status === "archived",
-  );
+  const archivedSchedules = data.schedule_versions
+    .filter((v) => v.week_start === week && v.status === "archived")
+    .sort(
+      (a, b) =>
+        Date.parse(String(a.archived_at || a.created_at || "1970-01-01")) -
+        Date.parse(String(b.archived_at || b.created_at || "1970-01-01")),
+    );
+  const archived = archivedSchedules.at(-1);
   const version = data.schedule_versions.find(
     (v) => v.week_start === week && v.status !== "archived",
   );
@@ -435,16 +441,26 @@ export default function Workspace({
         : "השינויים נשמרו. אפשר לבטל את הפעולה האחרונה.",
     );
   };
-  const lifecycle = async (action: "archive" | "restore") => {
-    const current = action === "archive" ? version : archived;
+  const lifecycle = async (
+    action: "archive" | "restore",
+    selectedId?: string,
+  ) => {
+    const current =
+      action === "archive"
+        ? version
+        : archivedSchedules.find((v) => v.id === selectedId) || archived;
     if (!current) throw new Error("הסידור כבר השתנה. רעננו ונסו שוב");
     await post("/api/change", {
       action,
       week,
+      id: current.id,
+      active_id: version?.id || null,
+      active_revision: version ? Number(version.revision) : null,
       revision: Number(current.revision),
     });
     setLastUndo(null);
     setArchivePrompt(false);
+    setRestorePrompt(null);
     await load();
     setNotice(
       action === "archive"
@@ -888,7 +904,7 @@ export default function Workspace({
               </p>
             </div>
             <div className="row">
-              {canEdit && !version && !archived && page !== "schedule" && (
+              {canEdit && !version && page !== "schedule" && (
                 <button
                   disabled={busy}
                   onClick={() =>
@@ -904,7 +920,7 @@ export default function Workspace({
                   יצירת סידור שבועי
                 </button>
               )}
-              {canEdit && !archived && (
+              {canEdit && (
                 <button
                   className="primary"
                   disabled={busy || version?.status === "published"}
@@ -1193,7 +1209,7 @@ export default function Workspace({
                     </p>
                   </div>
                   <div className="row">
-                    {!archived && (!version || version.status === "draft") && (
+                    {(!version || version.status === "draft") && (
                       <>
                         <button
                           className="primary"
@@ -1257,7 +1273,7 @@ export default function Workspace({
                         מחיקת סידור
                       </button>
                     )}
-                    {isAdmin && archived && (
+                    {isAdmin && archived && !version && (
                       <button
                         className="primary"
                         disabled={busy}
@@ -1285,7 +1301,7 @@ export default function Workspace({
                       </button>
                     )}
                   </div>
-                  {!archived && version?.status !== "published" && (
+                  {version?.status !== "published" && (
                     <details className="planner-more">
                       <summary>אפשרויות נוספות לשבוע</summary>
                       <div className="row">
@@ -1332,9 +1348,43 @@ export default function Workspace({
                       </div>
                     </details>
                   )}
+                  {isAdmin && !!archivedSchedules.length && version && (
+                    <details className="planner-more">
+                      <summary>
+                        סידורים שנמחקו ({archivedSchedules.length})
+                      </summary>
+                      <div className="trash-list">
+                        {archivedSchedules
+                          .slice()
+                          .reverse()
+                          .map((v, index) => (
+                            <div className="row" key={v.id}>
+                              <span>
+                                סידור שנמחק ·{" "}
+                                {
+                                  data.shift_assignments.filter(
+                                    (a) => a.version_id === v.id,
+                                  ).length
+                                }{" "}
+                                משמרות
+                                {v.archived_at || v.created_at
+                                  ? ` · ${new Intl.DateTimeFormat("he-IL", { timeZone: "Asia/Jerusalem", dateStyle: "short", timeStyle: "short" }).format(new Date(String(v.archived_at || v.created_at)))}`
+                                  : ` · גרסה ${archivedSchedules.length - index}`}
+                              </span>
+                              <button
+                                disabled={busy}
+                                onClick={() => setRestorePrompt(v.id)}
+                              >
+                                שחזור סידור זה
+                              </button>
+                            </div>
+                          ))}
+                      </div>
+                    </details>
+                  )}
                   <small>
-                    {archived
-                      ? "הסידור בסל המחזור. שחזור יחזיר את כל המשמרות כטיוטה."
+                    {archived && !version
+                      ? "הסידור הקודם נשמר בסל המחזור. אפשר ליצור סידור חדש לאותו שבוע או לשחזר את הקודם."
                       : "המערכת בודקת הכשרות וזמינות. כשאין עובד מתאים, המשמרת נשארת פנויה. אפשר לשנות הכול ידנית."}
                   </small>
                 </section>
@@ -1368,12 +1418,12 @@ export default function Workspace({
                     </button>
                     <button onClick={() => setWeek(sunday())}>השבוע</button>
                     <span className="badge">
-                      {archived
-                        ? "בסל המחזור"
-                        : version?.status === "published"
-                          ? "פורסם"
-                          : version
-                            ? "טיוטה"
+                      {version?.status === "published"
+                        ? "פורסם"
+                        : version
+                          ? "טיוטה"
+                          : archived
+                            ? "אין סידור פעיל"
                             : "טרם נוצר"}
                     </span>
                   </div>
@@ -1493,7 +1543,45 @@ export default function Workspace({
                     </div>
                   </div>
                 </details>
-                {view === "week" ? (
+                {canEdit &&
+                !assigned.length &&
+                (!version || version.status === "draft") ? (
+                  <section
+                    className="empty-week-message"
+                    aria-label="יצירת סידור לשבוע הנבחר"
+                  >
+                    <CalendarDays size={34} />
+                    <h2>מתחילים סידור חדש לשבוע הזה</h2>
+                    <p>
+                      {archivedSchedules.length
+                        ? "הסידורים הקודמים שמורים בסל המחזור. אפשר ליצור חדש בלי לאבד אותם."
+                        : "יוצרים את המשמרות של השבוע, ואז משבצים או משאירים אותן פנויות."}
+                    </p>
+                    <div className="row">
+                      <button
+                        className="primary"
+                        disabled={busy}
+                        onClick={() =>
+                          void run(() =>
+                            commitChanges(planWeek(data, week, "generate")),
+                          )
+                        }
+                      >
+                        יצירת סידור חדש
+                      </button>
+                      <button
+                        disabled={busy}
+                        onClick={() =>
+                          void run(() =>
+                            commitChanges(planWeek(data, week, "open")),
+                          )
+                        }
+                      >
+                        יצירה ללא שיבוץ
+                      </button>
+                    </div>
+                  </section>
+                ) : view === "week" ? (
                   <div className="week-grid">
                     {days.map((d, i) => {
                       const day = addDays(week, i);
@@ -1536,19 +1624,17 @@ export default function Workspace({
                                 a.starts_at.localeCompare(b.starts_at),
                               )
                               .map(renderCard)}
-                            {canEdit &&
-                              !archived &&
-                              version?.status !== "published" && (
-                                <button
-                                  className="add-day-shift"
-                                  onClick={() => {
-                                    setShiftDate(addDays(week, i));
-                                    setEditor(true);
-                                  }}
-                                >
-                                  + משמרת
-                                </button>
-                              )}
+                            {canEdit && version?.status !== "published" && (
+                              <button
+                                className="add-day-shift"
+                                onClick={() => {
+                                  setShiftDate(addDays(week, i));
+                                  setEditor(true);
+                                }}
+                              >
+                                + משמרת
+                              </button>
+                            )}
                             {!filtered.some(
                               (a) => localDate(a.starts_at) === day,
                             ) && <span className="no-shifts">אין משמרות</span>}
@@ -2220,6 +2306,36 @@ export default function Workspace({
           </footer>
         </div>
       </main>
+      {restorePrompt && (
+        <Modal
+          title="שחזור סידור קודם"
+          close={() => !busy && setRestorePrompt(null)}
+        >
+          <p>
+            הסידור הנוכחי יישמר בסל המחזור, והסידור שבחרת יחזור כטיוטה עם כל
+            המשמרות והשיבוצים שלו. שום סידור לא יימחק לצמיתות.
+          </p>
+          {error && (
+            <p className="error" role="alert">
+              {error}
+            </p>
+          )}
+          <div className="row">
+            <button
+              className="primary"
+              disabled={busy}
+              onClick={() =>
+                void run(() => lifecycle("restore", restorePrompt))
+              }
+            >
+              אישור שחזור
+            </button>
+            <button disabled={busy} onClick={() => setRestorePrompt(null)}>
+              ביטול
+            </button>
+          </div>
+        </Modal>
+      )}
       {archivePrompt && (
         <Modal
           title="העברת הסידור לסל המחזור"
@@ -2254,7 +2370,7 @@ export default function Workspace({
           title={editor === true || !editor.id ? "הוספת משמרת" : "עריכת משמרת"}
           close={() => setEditor(null)}
         >
-          {canEdit && !archived && version?.status !== "published" ? (
+          {canEdit && version?.status !== "published" ? (
             <ShiftEditor
               key={
                 editor === true

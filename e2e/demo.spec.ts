@@ -209,3 +209,74 @@ test("phone planning is readable without horizontal scrolling", async ({
       .getByRole("button", { name: "שמירת משמרת", exact: true }),
   ).toBeVisible();
 });
+
+test("archived legacy week offers fresh creation and keeps both schedules recoverable", async ({
+  page,
+}) => {
+  await page.goto("/demo");
+  await expect(page.locator(".shift")).toHaveCount(21);
+  const original = await page.evaluate(
+    () =>
+      JSON.parse(localStorage.getItem("myshift.demo.v1")!).data
+        .shift_assignments,
+  );
+  await page.getByRole("button", { name: "מחיקת סידור", exact: true }).click();
+  await page
+    .getByRole("button", { name: "העברה לסל המחזור", exact: true })
+    .click();
+  await expect(page.locator(".shift")).toHaveCount(0);
+  // Reproduce already-saved data from the version shown in the user's screenshot.
+  await page.evaluate(() => {
+    const saved = JSON.parse(localStorage.getItem("myshift.demo.v1")!);
+    saved.data.schedule_versions.forEach(
+      (v: Record<string, unknown>) => delete v.archived_at,
+    );
+    localStorage.setItem("myshift.demo.v1", JSON.stringify(saved));
+  });
+  await page.reload();
+  await expect(
+    page.getByRole("button", { name: "יצירת סידור חדש", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "יצירה ללא שיבוץ", exact: true }),
+  ).toBeVisible();
+  await page.screenshot({ path: "work/archived-create.png", fullPage: true });
+  await page
+    .getByRole("button", { name: "יצירה ללא שיבוץ", exact: true })
+    .click();
+  await expect(page.locator(".shift")).toHaveCount(21);
+  await expect(page.locator(".shift.open")).toHaveCount(21);
+  const all = await page.evaluate(
+    () =>
+      JSON.parse(localStorage.getItem("myshift.demo.v1")!).data
+        .shift_assignments,
+  );
+  for (const old of original) expect(all).toContainEqual(old);
+  expect(all).toHaveLength(original.length + 21);
+  await page.reload();
+  await expect(page.locator(".shift.open")).toHaveCount(21);
+  await page.getByText("סידורים שנמחקו (1)", { exact: true }).click();
+  await page
+    .getByRole("button", { name: "שחזור סידור זה", exact: true })
+    .click();
+  await expect(page.getByRole("dialog")).toContainText("הסידור הנוכחי יישמר");
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "ביטול", exact: true })
+    .click();
+  await expect(page.locator(".shift.open")).toHaveCount(21);
+  await page
+    .getByRole("button", { name: "שחזור סידור זה", exact: true })
+    .click();
+  await page.getByRole("button", { name: "אישור שחזור", exact: true }).click();
+  await expect(page.locator(".shift")).toHaveCount(21);
+  await expect(page.locator(".shift.open")).toHaveCount(1);
+  await page.reload();
+  await expect(page.locator(".shift.open")).toHaveCount(1);
+  const after = await page.evaluate(
+    () =>
+      JSON.parse(localStorage.getItem("myshift.demo.v1")!).data
+        .shift_assignments,
+  );
+  expect(after).toEqual(all);
+});
