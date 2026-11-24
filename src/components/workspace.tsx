@@ -5,6 +5,7 @@ import WeeklyAvailabilityEditor from "./weekly-availability-editor";
 import ScheduleNotifications from "./schedule-notifications";
 import Overview from "./overview";
 import OrganizationWeek from "./organization-week";
+import DemoTeamDesk from "./demo-team-desk";
 import type { ScheduleFocus } from "@/lib/overview";
 import {
   absenceReasons,
@@ -35,6 +36,7 @@ import {
   LayoutDashboard,
   CalendarDays,
   Users,
+  FileText,
   Building2,
   Sparkles,
   Bell,
@@ -87,6 +89,7 @@ const nav = [
   ["schedule", "המשמרות שלי", CalendarDays],
   ["dashboard", "סקירה כללית", LayoutDashboard],
   ["employees", "עובדים", Users],
+  ["team-desk", "תלושים ותזכורות", FileText],
   ["departments", "מחלקות ואתרים", Building2],
   ["ai", "עוזר AI", Sparkles],
   ["notifications", "התראות", Bell],
@@ -432,7 +435,9 @@ export default function Workspace({
   const pageLabel =
     page === "schedule" && canEdit
       ? "שיבוץ מחלקה"
-      : nav.find(([key]) => key === page)?.[1];
+      : page === "team-desk" && !canEdit
+        ? "התלושים שלי"
+        : nav.find(([key]) => key === page)?.[1];
   const unreadNotices = scheduleNotices(data.notifications).filter(
     (n) => !n.read,
   ).length;
@@ -1000,11 +1005,13 @@ export default function Workspace({
                   "dashboard",
                   "schedule",
                   "employees",
+                  "team-desk",
                   "ai",
                   "organization",
                 ].includes(key) &&
                 (key !== "organization" || canEdit) &&
-                (key !== "schedule" || !canEdit),
+                (key !== "schedule" || !canEdit) &&
+                (key !== "team-desk" || demo),
             )
             .map(([key, label, Icon]) => (
               <button
@@ -1022,7 +1029,7 @@ export default function Workspace({
                 }}
               >
                 <Icon size={19} />
-                {label}
+                {key === "team-desk" && !canEdit ? "התלושים שלי" : label}
                 {key === "ai" && <span className="tiny-tag">בקרוב</span>}
                 {key === "notifications" && unreadNotices > 0 && (
                   <i className="dot" />
@@ -1038,6 +1045,7 @@ export default function Workspace({
                     "dashboard",
                     "schedule",
                     "employees",
+                    "team-desk",
                     "ai",
                     "organization",
                   ].includes(key),
@@ -1154,7 +1162,8 @@ export default function Workspace({
                   value={demoEmployee}
                   onChange={(e) => {
                     setDemoEmployee(e.target.value);
-                    if (e.target.value) setPage("schedule");
+                    if (page === "team-desk") setPage("team-desk");
+                    else if (e.target.value) setPage("schedule");
                     else openOrganization();
                     setFilter("");
                     setEmployeeFilter("");
@@ -1212,6 +1221,7 @@ export default function Workspace({
                   "dashboard",
                   "notifications",
                   "organization",
+                  "team-desk",
                 ].includes(page) && (
                   <button
                     disabled={busy}
@@ -1233,9 +1243,12 @@ export default function Workspace({
                   </button>
                 )}
               {canEdit &&
-                !["notifications", "dashboard", "organization"].includes(
-                  page,
-                ) && (
+                ![
+                  "notifications",
+                  "dashboard",
+                  "organization",
+                  "team-desk",
+                ].includes(page) && (
                   <button
                     className="primary"
                     disabled={busy || version?.status === "published"}
@@ -1394,6 +1407,14 @@ export default function Workspace({
                 </div>
               </section>
             )}
+          {page === "team-desk" && demo && (
+            <DemoTeamDesk
+              key={demoEmployee || "manager"}
+              employees={data.employees}
+              employeeId={demoEmployee}
+              canEdit={canEdit}
+            />
+          )}
           {page === "organization" && canEdit && (
             <OrganizationWeek
               demo={demo}

@@ -250,3 +250,44 @@ test("printing from the phone view includes all seven days and ignores the open-
   await expect(page.locator(".sidebar")).toBeHidden();
   await expect(page.locator(".org-mobile")).toBeHidden();
 });
+
+test("synthetic payroll reaches the selected employee, and birthdays stay in the manager view", async ({
+  page,
+}) => {
+  await page.clock.setFixedTime(new Date("2026-11-24T12:00:00Z"));
+  await page.goto("/demo");
+  await page
+    .getByRole("button", { name: "תלושים ותזכורות", exact: true })
+    .click();
+  const desk = page.getByRole("region", { name: "תלושים ותזכורות בדמו" });
+  await expect(
+    desk.getByRole("region", { name: "תזכורות יום הולדת" }),
+  ).toContainText("מחר");
+  await desk.getByLabel("בחר עובד").selectOption({ label: "דניאל לוי" });
+  await desk
+    .getByRole("button", { name: "שלח תלוש דוגמה", exact: true })
+    .click();
+  await expect(
+    desk.getByRole("button", { name: "נשלח בדמו", exact: true }),
+  ).toBeDisabled();
+  const mode = page.getByLabel("תצוגת הדגמה");
+  const inbox = page.getByRole("region", { name: "תיבת תלושים אישית" });
+  await mode.selectOption({ label: "עובד · דניאל לוי" });
+  await expect(inbox.locator("summary")).toHaveCount(1);
+  await expect(
+    page.getByRole("region", { name: "תזכורות יום הולדת" }),
+  ).toHaveCount(0);
+  await mode.selectOption({ label: "עובד · נועה כהן" });
+  await expect(inbox.locator("summary")).toHaveCount(0);
+  await mode.selectOption({ label: "מנהל" });
+  await desk.getByRole("button", { name: /שלח לכל עובדי הדמו/ }).click();
+  await expect(desk.getByRole("button", { name: /0 נותרו/ })).toBeDisabled();
+  await mode.selectOption({ label: "עובד · נועה כהן" });
+  await expect(inbox.locator("summary")).toHaveCount(1);
+  await page.reload();
+  await page
+    .getByLabel("תצוגת הדגמה")
+    .selectOption({ label: "עובד · דניאל לוי" });
+  await page.getByRole("button", { name: "התלושים שלי", exact: true }).click();
+  await expect(inbox.locator("summary")).toHaveCount(1);
+});
