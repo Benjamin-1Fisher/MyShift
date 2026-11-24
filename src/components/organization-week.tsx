@@ -11,6 +11,7 @@ import {
 import { organizationWeek } from "@/lib/organization-week";
 
 const weekdays = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"];
+const mobileWeekdays = ["א", "ב", "ג", "ד", "ה", "ו", "ש"];
 const clock = new Intl.DateTimeFormat("he-IL", {
   timeZone: "Asia/Jerusalem",
   hour: "2-digit",
@@ -216,7 +217,7 @@ export default function OrganizationWeek({
                   aria-label={weekdays[i] + " " + dateLabel(date)}
                   onClick={() => setMobileDay(i)}
                 >
-                  {weekdays[i].slice(0, 1)}׳<small>{dateLabel(date)}</small>
+                  {mobileWeekdays[i]}׳<small>{dateLabel(date)}</small>
                 </button>
               ))}
             </div>
