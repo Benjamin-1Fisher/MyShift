@@ -2723,3 +2723,77 @@ summary {
     flex-wrap: wrap;
   }
 }
+
+.org-print-sheet {
+  display: none;
+}
+.org-print-button {
+  white-space: nowrap;
+  font-weight: 700;
+}
+.org-print-button svg {
+  color: #5542b8;
+}
+@page myshift-week {
+  size: A4 landscape;
+  margin: 11mm;
+}
+@media print {
+  body:has(.org-print-sheet) .app {
+    min-height: 0;
+  }
+  body:has(.org-print-sheet) main > :not(.content),
+  body:has(.org-print-sheet) .content > :not(.org-week),
+  .org-week > :not(.org-print-sheet) {
+    display: none !important;
+  }
+  .org-print-sheet {
+    display: block;
+    page: myshift-week;
+    color: #18243d;
+    print-color-adjust: exact;
+  }
+  .org-print-heading {
+    border-bottom: 2px solid #5542b8;
+    padding-bottom: 3mm;
+    margin-bottom: 4mm;
+  }
+  .org-print-heading h1 {
+    font-size: 20pt;
+    margin: 0;
+    line-height: 1.1;
+  }
+  .org-print-heading p {
+    margin: 1.5mm 0 0;
+    font-size: 10pt;
+  }
+  .org-print-demo {
+    font-weight: 700;
+  }
+  .org-print-sheet .org-matrix {
+    width: 100%;
+    min-width: 0;
+    table-layout: fixed;
+    font-size: 9pt;
+    border: 1px solid #dfe6f0;
+  }
+  .org-print-sheet .org-matrix th,
+  .org-print-sheet .org-matrix td {
+    padding: 1.6mm;
+    position: static;
+  }
+  .org-print-sheet .org-matrix tr > :first-child {
+    width: 23mm;
+  }
+  .org-print-sheet .org-matrix thead {
+    display: table-header-group;
+  }
+  .org-print-sheet .org-shift {
+    break-inside: avoid;
+    padding: 1mm;
+  }
+  .org-print-sheet .org-shift span,
+  .org-print-sheet .org-shift bdi {
+    font-size: 8pt;
+  }
+}

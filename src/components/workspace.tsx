@@ -1396,6 +1396,7 @@ export default function Workspace({
             )}
           {page === "organization" && canEdit && (
             <OrganizationWeek
+              demo={demo}
               data={displayData}
               departments={departments}
               week={week}
