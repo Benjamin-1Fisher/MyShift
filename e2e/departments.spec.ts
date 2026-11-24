@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 test("departments isolate workers, templates, custom overnight shifts and publication on desktop and phone", async ({
   page,
 }) => {
-  await page.goto("/demo");
+  await page.goto("/demo?view=department");
   const tabs = page.getByRole("tablist", { name: "מחלקות" });
   await expect(tabs.getByRole("tab")).toHaveCount(4);
   await expect(page.locator(".shift")).toHaveCount(7);
@@ -69,7 +69,7 @@ test("departments isolate workers, templates, custom overnight shifts and public
 test("managers explicitly configure separate reception hours and day-specific staffing", async ({
   page,
 }) => {
-  await page.goto("/demo");
+  await page.goto("/demo?view=department");
   await page.getByRole("tab", { name: "קבלה", exact: true }).click();
   await page.getByText("ניהול נוסף", { exact: true }).click();
   await page.getByRole("button", { name: "הגדרות", exact: true }).click();
@@ -99,7 +99,14 @@ test("managers explicitly configure separate reception hours and day-specific st
   await form.getByLabel("סיום", { exact: true }).fill("16:30");
   await form.getByLabel("מספר עובדים").fill("2");
   await form.getByRole("button", { name: "שמירה", exact: true }).click();
-  await page.getByRole("button", { name: "סידורי עבודה", exact: true }).click();
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "כל הסידורים השבועיים", exact: true })
+    .click();
+  await page
+    .getByRole("region", { name: "לוח שבועי לכל המחלקות" })
+    .getByRole("button", { name: "קבלה", exact: true })
+    .click();
   await page
     .getByRole("button", { name: "יצירת סידור בקליק", exact: true })
     .click();
@@ -114,11 +121,28 @@ test("organization board shows all departments across the week, flags gaps and r
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto(
-    "/demo?department=20000000-0000-4000-8000-000000000002&view=organization",
-  );
+  await page.goto("/demo?department=20000000-0000-4000-8000-000000000002");
   const board = page.getByRole("region", { name: "לוח שבועי לכל המחלקות" });
   const matrix = board.getByRole("table");
+  const nav = page.getByRole("navigation");
+  await expect(nav.getByRole("button").first()).toHaveText(
+    "כל הסידורים השבועיים",
+  );
+  await expect(
+    nav.getByRole("button", { name: "סידורי עבודה", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    board.getByRole("complementary", { name: "דורש טיפול השבוע" }),
+  ).toContainText("סיירים");
+  await board.getByRole("button", { name: "שבץ עובד", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "עריכת משמרת" })).toBeVisible();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "סגירה", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "חזרה ללוח השבועי", exact: true })
+    .click();
   await expect(matrix.getByRole("columnheader")).toHaveCount(8);
   await expect(matrix.getByRole("rowheader")).toHaveCount(4);
   await expect(matrix.getByText("דניאל לוי").first()).toBeVisible();
@@ -161,4 +185,39 @@ test("organization board shows all departments across the week, flags gaps and r
   await expect(
     page.getByRole("button", { name: "כל הסידורים השבועיים", exact: true }),
   ).toHaveCount(0);
+});
+
+test("a manager can fill the flagged shift and see the weekly board update", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/demo");
+  const board = page.getByRole("region", { name: "לוח שבועי לכל המחלקות" });
+  await board.getByRole("button", { name: "שבץ עובד", exact: true }).click();
+  const form = page.getByRole("dialog", { name: "עריכת משמרת" });
+  const workers = form.getByRole("combobox", {
+    name: "עובד במשמרת",
+    exact: true,
+  });
+  await expect(workers).toBeVisible();
+  const candidate = workers
+    .locator('option:not([disabled]):not([value=""])')
+    .first();
+  const id = await candidate.getAttribute("value");
+  expect(id).toBeTruthy();
+  await workers.selectOption(id!);
+  await form.getByRole("button", { name: "שמירת משמרת", exact: true }).click();
+  await expect(form).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "חזרה ללוח השבועי", exact: true })
+    .click();
+  await expect(
+    board.getByRole("button", { name: "0 פתוחות לשיבוץ", exact: true }),
+  ).toBeVisible();
+  await expect(
+    board.getByRole("button", { name: "שבץ עובד", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    board.getByRole("complementary", { name: "דורש טיפול השבוע" }),
+  ).toContainText("מחלקות בלי סידור לשבוע הזה: 2");
 });

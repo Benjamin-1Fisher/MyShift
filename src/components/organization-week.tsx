@@ -1,5 +1,10 @@
 import { useMemo, useState } from "react";
-import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
+import {
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  CircleAlert,
+} from "lucide-react";
 import {
   addDays,
   localDate,
@@ -32,12 +37,14 @@ export default function OrganizationWeek({
   week,
   onWeek,
   onDepartment,
+  onOpenShift,
 }: {
   data: Data;
   departments: Row[];
   week: string;
   onWeek: (week: string) => void;
   onDepartment: (id: string) => void;
+  onOpenShift: (shift: Assignment, isDraft: boolean) => void;
 }) {
   const board = useMemo(
     () => organizationWeek(data, departments, week),
@@ -48,6 +55,24 @@ export default function OrganizationWeek({
     return Math.max(0, board.dates.indexOf(today));
   });
   const [gapsOnly, setGapsOnly] = useState(false);
+  const openShifts = board.rows
+    .flatMap((row) =>
+      row.days
+        .flatMap((day) => day.filter((shift) => !shift.employee_id))
+        .map((shift) => ({
+          shift,
+          department: row.department,
+          isDraft: row.status === "draft",
+        })),
+    )
+    .sort(
+      (a, b) => Date.parse(a.shift.starts_at) - Date.parse(b.shift.starts_at),
+    );
+  const needsSchedule = board.rows.filter((row) => !row.status).length;
+  const [referenceTime] = useState(() => Date.now());
+  const nextOpen =
+    openShifts.find(({ shift }) => Date.parse(shift.ends_at) > referenceTime) ??
+    openShifts[0];
   const names = useMemo(() => {
     const index = (rows: Row[]) =>
       new Map(rows.map((r) => [r.id, String(r.name)]));
@@ -164,6 +189,44 @@ export default function OrganizationWeek({
           </button>
         </div>
       </header>
+      {board.rows.length > 0 && (nextOpen || needsSchedule > 0) && (
+        <aside className="org-priority" aria-label="דורש טיפול השבוע">
+          <div className="org-priority-description">
+            <CircleAlert aria-hidden size={19} />
+            <div>
+              <strong>דורש טיפול השבוע</strong>
+              {nextOpen && (
+                <p>
+                  {String(nextOpen.department.name)} ·{" "}
+                  {names.sites.get(nextOpen.shift.site_id) || "אתר לא ידוע"} ·{" "}
+                  {
+                    weekdays[
+                      board.dates.indexOf(localDate(nextOpen.shift.starts_at))
+                    ]
+                  }{" "}
+                  {dateLabel(localDate(nextOpen.shift.starts_at))} ·{" "}
+                  <bdi dir="ltr">
+                    {clock.format(new Date(nextOpen.shift.starts_at))}–
+                    {clock.format(new Date(nextOpen.shift.ends_at))}
+                  </bdi>
+                </p>
+              )}
+              {needsSchedule > 0 && (
+                <small>מחלקות בלי סידור לשבוע הזה: {needsSchedule}</small>
+              )}
+            </div>
+          </div>
+          {nextOpen && (
+            <button
+              type="button"
+              onClick={() => onOpenShift(nextOpen.shift, nextOpen.isDraft)}
+            >
+              {nextOpen.isDraft ? "שבץ עובד" : "פתח את השיבוץ"}{" "}
+              <ChevronLeft aria-hidden size={15} />
+            </button>
+          )}
+        </aside>
+      )}
       {!board.rows.length ? (
         <p className="org-no-departments">אין מחלקות זמינות להצגה.</p>
       ) : (

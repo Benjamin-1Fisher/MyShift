@@ -2682,3 +2682,44 @@ summary {
     padding: 6px 8px;
   }
 }
+
+.org-priority {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  border: 1px solid #efd49c;
+  border-radius: 12px;
+  background: #fff9ec;
+  color: #573713;
+}
+.org-priority-description {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+}
+.org-priority-description svg {
+  flex: none;
+  margin-top: 2px;
+  color: #986014;
+}
+.org-priority-description p {
+  margin: 1px 0 0;
+}
+.org-priority-description small {
+  display: block;
+  color: #695033;
+}
+.org-priority button {
+  white-space: nowrap;
+  border-color: #e2c28c;
+  font-weight: 700;
+}
+@media (max-width: 520px) {
+  .org-priority {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+}

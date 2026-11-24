@@ -50,7 +50,9 @@ test("organization: direct save, undo copied shift, publish, archive and restore
   await expect(page.locator(".shift")).toHaveCount(1);
   await expect(page.locator(".shift")).toContainText("למחרת");
   await page.reload();
-  await page.getByRole("button", { name: "סידורי עבודה", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "שיבוץ מחלקה", exact: true }),
+  ).toBeVisible();
   await expect(page.locator(".shift")).toHaveCount(1);
   await page.locator(".shift-main").click();
   await page.getByRole("button", { name: "שכפול משמרת", exact: true }).click();
