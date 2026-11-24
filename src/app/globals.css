@@ -2797,3 +2797,64 @@ summary {
     font-size: 8pt;
   }
 }
+
+.team-panels {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 12px;
+}
+.team-panels h2,
+.team-slip h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.team-select {
+  display: grid;
+  max-width: 360px;
+  gap: 5px;
+  margin: 12px 0;
+}
+.team-panels small {
+  display: block;
+  margin-top: 10px;
+}
+.team-birthdays {
+  padding: 0;
+  list-style: none;
+}
+.team-birthdays li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  padding: 10px 0;
+}
+.team-birthdays time {
+  margin-inline-start: auto;
+  font-weight: 600;
+}
+.team-slip {
+  margin: 8px 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.team-slip dl {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  max-width: 310px;
+  gap: 4px;
+}
+@media (max-width: 760px) {
+  .team-panels {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.team-bulk {
+  margin-inline-start: 8px;
+  margin-top: 5px;
+}
