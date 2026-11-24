@@ -221,3 +221,32 @@ test("a manager can fill the flagged shift and see the weekly board update", asy
     board.getByRole("complementary", { name: "דורש טיפול השבוע" }),
   ).toContainText("מחלקות בלי סידור לשבוע הזה: 2");
 });
+
+test("printing from the phone view includes all seven days and ignores the open-shift filter", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.addInitScript(() => {
+    window.print = () =>
+      document.documentElement.setAttribute("data-print-requested", "yes");
+  });
+  await page.goto("/demo");
+  const board = page.getByRole("region", { name: "לוח שבועי לכל המחלקות" });
+  await board.getByRole("button", { name: /פתוחות לשיבוץ/ }).click();
+  const sheet = board.locator(".org-print-sheet");
+  await expect(sheet).toBeHidden();
+  await board.getByRole("button", { name: "הדפסה / PDF", exact: true }).click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-print-requested",
+    "yes",
+  );
+  await page.emulateMedia({ media: "print" });
+  await expect(sheet).toBeVisible();
+  await expect(sheet.getByRole("columnheader")).toHaveCount(8);
+  await expect(sheet.getByRole("rowheader")).toHaveCount(4);
+  await expect(sheet.getByText("דניאל לוי").first()).toBeVisible();
+  await expect(sheet.getByText("פתוחה לשיבוץ")).toBeVisible();
+  await expect(sheet.getByText("נתוני דוגמה בלבד")).toBeVisible();
+  await expect(page.locator(".sidebar")).toBeHidden();
+  await expect(page.locator(".org-mobile")).toBeHidden();
+});

@@ -4,6 +4,7 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleAlert,
+  Printer,
 } from "lucide-react";
 import {
   addDays,
@@ -38,6 +39,7 @@ export default function OrganizationWeek({
   onWeek,
   onDepartment,
   onOpenShift,
+  demo,
 }: {
   data: Data;
   departments: Row[];
@@ -45,6 +47,7 @@ export default function OrganizationWeek({
   onWeek: (week: string) => void;
   onDepartment: (id: string) => void;
   onOpenShift: (shift: Assignment, isDraft: boolean) => void;
+  demo: boolean;
 }) {
   const board = useMemo(
     () => organizationWeek(data, departments, week),
@@ -83,14 +86,14 @@ export default function OrganizationWeek({
     };
   }, [data.employees, data.sites, data.roles]);
 
-  function shiftsFor(shifts: Assignment[]) {
-    const visible = gapsOnly
+  function shiftsFor(shifts: Assignment[], onlyOpen = gapsOnly) {
+    const visible = onlyOpen
       ? shifts.filter((shift) => !shift.employee_id)
       : shifts;
     if (!visible.length)
       return (
         <span className="org-empty">
-          {gapsOnly ? "אין פתוחות" : "ללא משמרות"}
+          {onlyOpen ? "אין פתוחות" : "ללא משמרות"}
         </span>
       );
     return (
@@ -139,6 +142,50 @@ export default function OrganizationWeek({
   const startDate =
     dateLabel(week) + (year === end.slice(0, 4) ? "" : "." + year);
 
+  const dateRange = (
+    <bdi dir="ltr">
+      {startDate}–{dateLabel(end)}.{end.slice(0, 4)}
+    </bdi>
+  );
+  const matrix = (print: boolean) => (
+    <table className="org-matrix">
+      <thead>
+        <tr>
+          <th scope="col">מחלקה</th>
+          {board.dates.map((date, i) => (
+            <th scope="col" key={date}>
+              <strong>{weekdays[i]}</strong>
+              <small>{dateLabel(date)}</small>
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {board.rows.map((row) => (
+          <tr key={row.department.id}>
+            <th scope="row">
+              {print ? (
+                <strong>{String(row.department.name)}</strong>
+              ) : (
+                departmentButton(row.department)
+              )}
+              <small>{statusLabel[row.status]}</small>
+            </th>
+            {row.days.map((shifts, i) => (
+              <td key={board.dates[i]}>
+                {row.status ? (
+                  shiftsFor(shifts, !print && gapsOnly)
+                ) : (
+                  <span className="org-empty">—</span>
+                )}
+              </td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+
   return (
     <section className="org-week" aria-label="לוח שבועי לכל המחלקות">
       <header className="org-controls">
@@ -146,11 +193,7 @@ export default function OrganizationWeek({
           <CalendarDays aria-hidden size={22} />
           <div>
             <small>שבוע עבודה</small>
-            <strong>
-              <bdi dir="ltr">
-                {startDate}–{dateLabel(end)}.{end.slice(0, 4)}
-              </bdi>
-            </strong>
+            <strong>{dateRange}</strong>
           </div>
         </div>
         <div className="org-nav">
@@ -188,7 +231,29 @@ export default function OrganizationWeek({
             <strong>{board.unassigned}</strong> פתוחות לשיבוץ
           </button>
         </div>
+        {board.rows.length > 0 && (
+          <button
+            type="button"
+            className="org-print-button"
+            onClick={() => window.print()}
+          >
+            <Printer aria-hidden size={17} /> הדפסה / PDF
+          </button>
+        )}
       </header>
+      {board.rows.length > 0 && (
+        <div className="org-print-sheet" aria-label="סידור שבועי להדפסה">
+          <div className="org-print-heading">
+            <h1>מיי שיפט · סידור שבועי</h1>
+            <p>
+              {dateRange} · {board.rows.length} מחלקות · {board.total} משמרות ·{" "}
+              {board.unassigned} פתוחות לשיבוץ
+            </p>
+            {demo && <p className="org-print-demo">נתוני דוגמה בלבד</p>}
+          </div>
+          {matrix(true)}
+        </div>
+      )}
       {board.rows.length > 0 && (nextOpen || needsSchedule > 0) && (
         <aside className="org-priority" aria-label="דורש טיפול השבוע">
           <div className="org-priority-description">
@@ -237,38 +302,7 @@ export default function OrganizationWeek({
             aria-label="טבלת סידור שבועית"
             tabIndex={0}
           >
-            <table className="org-matrix">
-              <thead>
-                <tr>
-                  <th scope="col">מחלקה</th>
-                  {board.dates.map((date, i) => (
-                    <th scope="col" key={date}>
-                      <strong>{weekdays[i]}</strong>
-                      <small>{dateLabel(date)}</small>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {board.rows.map((row) => (
-                  <tr key={row.department.id}>
-                    <th scope="row">
-                      {departmentButton(row.department)}
-                      <small>{statusLabel[row.status]}</small>
-                    </th>
-                    {row.days.map((shifts, i) => (
-                      <td key={board.dates[i]}>
-                        {row.status ? (
-                          shiftsFor(shifts)
-                        ) : (
-                          <span className="org-empty">—</span>
-                        )}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            {matrix(false)}
           </div>
           <div className="org-mobile">
             <div className="org-day-picker" role="group" aria-label="בחירת יום">
