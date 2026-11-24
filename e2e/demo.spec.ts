@@ -648,6 +648,8 @@ test("employee overview shows personal published shifts without manager totals o
 test("employee absence button handles sickness and vacation dates without changing recurring availability", async ({
   page,
 }) => {
+  // The dated absence fixtures below must remain in the visible week after reload.
+  await page.clock.setFixedTime(new Date("2026-11-04T12:00:00Z"));
   await page.goto("/demo");
   await page.getByRole("button", { name: "עובדים", exact: true }).click();
   const employee = page.getByRole("row").filter({ hasText: "דניאל לוי" });

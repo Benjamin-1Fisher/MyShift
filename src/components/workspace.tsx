@@ -4,6 +4,7 @@ import ShiftEditor from "./shift-editor";
 import WeeklyAvailabilityEditor from "./weekly-availability-editor";
 import ScheduleNotifications from "./schedule-notifications";
 import Overview from "./overview";
+import OrganizationWeek from "./organization-week";
 import type { ScheduleFocus } from "@/lib/overview";
 import {
   absenceReasons,
@@ -84,6 +85,7 @@ type Field = {
 const nav = [
   ["dashboard", "סקירה כללית", LayoutDashboard],
   ["schedule", "סידורי עבודה", CalendarDays],
+  ["organization", "כל הסידורים השבועיים", CalendarDays],
   ["employees", "עובדים", Users],
   ["departments", "מחלקות ואתרים", Building2],
   ["ai", "עוזר AI", Sparkles],
@@ -280,6 +282,7 @@ export default function Workspace({
 }) {
   const router = useRouter();
   const demoLoaded = useRef(false);
+  const initialViewRead = useRef(false);
   const [demoEmployee, setDemoEmployee] = useState("");
   const [demoReady, setDemoReady] = useState(false);
   const post: typeof serverPost = async (url, body) => {
@@ -333,9 +336,12 @@ export default function Workspace({
     [importRows, setImportRows] = useState<Record<string, string>[]>([]),
     [mapping, setMapping] = useState<Record<string, string>>({});
   const load = useCallback(async () => {
-    setFilter(
-      new URLSearchParams(window.location.search).get("department") || "",
-    );
+    const query = new URLSearchParams(window.location.search);
+    setFilter(query.get("department") || "");
+    if (!initialViewRead.current) {
+      initialViewRead.current = true;
+      if (demo && query.get("view") === "organization") setPage("organization");
+    }
     if (demo) {
       const { loadDemo, DEMO_ADMIN } = await import("@/lib/demo");
       const saved = loadDemo();
@@ -489,12 +495,22 @@ export default function Workspace({
   const visibleAbsences = weekAbsences.filter((a) =>
     visibleEmployees.some((e) => e.id === a.employee_id),
   );
+  const openOrganization = () => {
+    setPage("organization");
+    setMenu(false);
+    if (demo) {
+      const url = new URL(window.location.href);
+      url.searchParams.set("view", "organization");
+      window.history.replaceState(null, "", url);
+    }
+  };
   const selectDepartment = (id: string) => {
     setFilter(id);
     setNotice("");
     setError("");
     const url = new URL(window.location.href);
     url.searchParams.set("department", id);
+    url.searchParams.delete("view");
     window.history.replaceState(null, "", url);
     setEmployeeFilter("");
     setRoleFilter("");
@@ -956,14 +972,23 @@ export default function Workspace({
         </div>
         <nav>
           {nav
-            .filter(([key]) =>
-              ["dashboard", "schedule", "employees", "ai"].includes(key),
+            .filter(
+              ([key]) =>
+                [
+                  "dashboard",
+                  "schedule",
+                  "employees",
+                  "ai",
+                  "organization",
+                ].includes(key) &&
+                (key !== "organization" || canEdit),
             )
             .map(([key, label, Icon]) => (
               <button
                 className={page === key ? "nav-item active" : "nav-item"}
                 key={key}
                 onClick={() => {
+                  if (key === "organization") return openOrganization();
                   setPage(key);
                   setMenu(false);
                 }}
@@ -981,7 +1006,13 @@ export default function Workspace({
             {nav
               .filter(
                 ([key]) =>
-                  !["dashboard", "schedule", "employees", "ai"].includes(key),
+                  ![
+                    "dashboard",
+                    "schedule",
+                    "employees",
+                    "ai",
+                    "organization",
+                  ].includes(key),
               )
               .map(([key, label, Icon]) => (
                 <button
@@ -1122,9 +1153,9 @@ export default function Workspace({
         <div className="content">
           <div className="page-heading">
             <div>
-              {!["notifications", "dashboard"].includes(page) && (
-                <span className="eyebrow">ניהול חכם. צוות מחובר.</span>
-              )}
+              {!["notifications", "dashboard", "organization"].includes(
+                page,
+              ) && <span className="eyebrow">ניהול חכם. צוות מחובר.</span>}
               <h1>
                 {page === "dashboard"
                   ? "מצב השבוע"
@@ -1135,15 +1166,28 @@ export default function Workspace({
                   ? canEdit
                     ? "מה דורש טיפול ומה כבר מוכן, במחלקות שבאחריותך."
                     : "המשמרות שפורסמו לך בשבוע הנבחר."
-                  : page === "notifications"
-                    ? "סידורים שפורסמו ושינויים שחשוב לדעת."
-                    : "מרחב אחד לניהול מדויק, פשוט ומשותף."}
+                  : page === "organization"
+                    ? "מי עובד, איפה ומתי, בכל המחלקות שבאחריותך."
+                    : page === "notifications"
+                      ? "סידורים שפורסמו ושינויים שחשוב לדעת."
+                      : "מרחב אחד לניהול מדויק, פשוט ומשותף."}
               </p>
             </div>
             <div className="row">
+              {canEdit && page === "schedule" && (
+                <button type="button" onClick={openOrganization}>
+                  <CalendarDays size={17} aria-hidden />
+                  הצגת כל המחלקות
+                </button>
+              )}
               {canEdit &&
                 !version &&
-                !["schedule", "dashboard", "notifications"].includes(page) && (
+                ![
+                  "schedule",
+                  "dashboard",
+                  "notifications",
+                  "organization",
+                ].includes(page) && (
                   <button
                     disabled={busy}
                     onClick={() =>
@@ -1163,20 +1207,23 @@ export default function Workspace({
                     יצירת סידור שבועי
                   </button>
                 )}
-              {canEdit && !["notifications", "dashboard"].includes(page) && (
-                <button
-                  className="primary"
-                  disabled={busy || version?.status === "published"}
-                  onClick={() => {
-                    setPage("schedule");
-                    setShiftDate(week);
-                    setEditor(true);
-                  }}
-                >
-                  <Plus size={17} />
-                  הוספת משמרת
-                </button>
-              )}
+              {canEdit &&
+                !["notifications", "dashboard", "organization"].includes(
+                  page,
+                ) && (
+                  <button
+                    className="primary"
+                    disabled={busy || version?.status === "published"}
+                    onClick={() => {
+                      setPage("schedule");
+                      setShiftDate(week);
+                      setEditor(true);
+                    }}
+                  >
+                    <Plus size={17} />
+                    הוספת משמרת
+                  </button>
+                )}
             </div>
           </div>
           {!configured && !demo && (
@@ -1322,6 +1369,19 @@ export default function Workspace({
                 </div>
               </section>
             )}
+          {page === "organization" && canEdit && (
+            <OrganizationWeek
+              data={displayData}
+              departments={departments}
+              week={week}
+              onWeek={setWeek}
+              onDepartment={(id) => {
+                selectDepartment(id);
+                setView("week");
+                setPage("schedule");
+              }}
+            />
+          )}
           {page === "dashboard" && (
             <Overview
               data={displayData}

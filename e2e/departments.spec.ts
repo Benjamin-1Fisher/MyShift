@@ -109,3 +109,56 @@ test("managers explicitly configure separate reception hours and day-specific st
   await expect(page.locator(".shift")).toHaveCount(7);
   await expect(page.locator(".shift-time").first()).toContainText("07:00");
 });
+
+test("organization board shows all departments across the week, flags gaps and remains private to managers", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(
+    "/demo?department=20000000-0000-4000-8000-000000000002&view=organization",
+  );
+  const board = page.getByRole("region", { name: "לוח שבועי לכל המחלקות" });
+  const matrix = board.getByRole("table");
+  await expect(matrix.getByRole("columnheader")).toHaveCount(8);
+  await expect(matrix.getByRole("rowheader")).toHaveCount(4);
+  await expect(matrix.getByText("דניאל לוי").first()).toBeVisible();
+  await expect(matrix.getByText(/מתחם מרכז/).first()).toBeVisible();
+  await expect(matrix.getByText("פתוחה לשיבוץ").first()).toBeVisible();
+  expect(
+    await matrix.evaluate(
+      (el) =>
+        el.getBoundingClientRect().width <= el.parentElement!.clientWidth + 1,
+    ),
+  ).toBe(true);
+  const gaps = board.getByRole("button", { name: /פתוחות לשיבוץ/ });
+  await gaps.click();
+  await expect(gaps).toHaveAttribute("aria-pressed", "true");
+  await expect(matrix.getByText("דניאל לוי")).toHaveCount(0);
+  await gaps.click();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  const days = board.getByRole("group", { name: "בחירת יום" });
+  await expect(days.getByRole("button")).toHaveCount(7);
+  await days.getByRole("button", { name: /^שבת/ }).click();
+  await expect(board.getByRole("heading", { name: /^שבת/ })).toBeVisible();
+  await expect(
+    board.getByRole("button", { name: "סיירים", exact: true }),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await board.getByRole("button", { name: "סיירים", exact: true }).click();
+  await expect(
+    page.getByRole("tab", { name: "סיירים", exact: true }),
+  ).toHaveAttribute("aria-selected", "true");
+
+  await page
+    .getByRole("combobox", { name: "תצוגת הדגמה" })
+    .selectOption({ label: "עובד · דניאל לוי" });
+  await expect(board).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "כל הסידורים השבועיים", exact: true }),
+  ).toHaveCount(0);
+});
