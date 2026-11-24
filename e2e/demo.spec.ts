@@ -10,7 +10,7 @@ test("simple staffing flow saves directly, keeps open shifts, supports undo and 
   page.on("request", (r) => {
     if (r.url().includes("/api/")) api.push(r.url());
   });
-  await page.goto("/demo");
+  await page.goto("/demo?view=department");
   await expect(page.locator(".shift")).toHaveCount(7);
   await page.screenshot({ path: "work/simple-schedule.png", fullPage: true });
   await page.getByRole("button", { name: "עובדים", exact: true }).click();
@@ -97,7 +97,7 @@ test("simple staffing flow saves directly, keeps open shifts, supports undo and 
 test("delete is recoverable after reload and restore is draft with the same shifts", async ({
   page,
 }) => {
-  await page.goto("/demo");
+  await page.goto("/demo?view=department");
   await expect(page.locator(".shift")).toHaveCount(7);
   const readShifts = () =>
     page.evaluate(
@@ -135,7 +135,7 @@ test("delete is recoverable after reload and restore is draft with the same shif
 test("one click creates open weeks, auto assigns, avoids duplicates and copies a previous week", async ({
   page,
 }) => {
-  await page.goto("/demo");
+  await page.goto("/demo?view=department");
   await page.getByRole("button", { name: "שבוע הבא", exact: true }).click();
   await page.getByText("אפשרויות נוספות לשבוע", { exact: true }).click();
   await page
@@ -175,7 +175,7 @@ for (const button of ["יצירת סידור חדש", "יצירה ללא שיב�
     page,
   }) => {
     await page.setViewportSize({ width: 1920, height: 1080 });
-    await page.goto("/demo");
+    await page.goto("/demo?view=department");
     await page.getByRole("button", { name: "שבוע הבא", exact: true }).click();
     await page.getByRole("button", { name: button, exact: true }).click();
     await expect(page.locator(".shift")).toHaveCount(21);
@@ -241,7 +241,7 @@ test("storage errors are honest and production remains separate", async ({
       throw new DOMException("quota", "QuotaExceededError");
     };
   });
-  await page.goto("/demo");
+  await page.goto("/demo?view=department");
   await expect(page.locator("p[role=alert]")).toContainText("השינוי לא נשמר");
 });
 
@@ -249,7 +249,7 @@ test("phone planning is readable without horizontal scrolling", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/demo");
+  await page.goto("/demo?view=department");
   await expect(page.locator(".shift")).toHaveCount(7);
   expect(
     await page.evaluate(
@@ -270,7 +270,7 @@ test("employee form saves Friday-night availability and respects it in automatic
 }) => {
   test.setTimeout(60000);
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.goto("/demo");
+  await page.goto("/demo?view=department");
   await page.getByRole("button", { name: "עובדים", exact: true }).click();
   await page.getByRole("button", { name: "עובד חדש", exact: true }).click();
   const form = page.getByRole("dialog");
@@ -307,7 +307,14 @@ test("employee form saves Friday-night availability and respects it in automatic
     form.getByLabel("לילה ביום שבת", { exact: true }),
   ).not.toBeChecked();
   await form.getByRole("button", { name: "סגירה", exact: true }).click();
-  await page.getByRole("button", { name: "סידורי עבודה", exact: true }).click();
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "כל הסידורים השבועיים", exact: true })
+    .click();
+  await page
+    .getByRole("region", { name: "לוח שבועי לכל המחלקות" })
+    .getByRole("button", { name: "אחמ״שים", exact: true })
+    .click();
   await page.getByRole("button", { name: "שבוע הבא", exact: true }).click();
   await page
     .getByRole("button", { name: "יצירת סידור חדש", exact: true })
@@ -349,7 +356,7 @@ test("employee form saves Friday-night availability and respects it in automatic
 test("weekly availability is optional, supports quick choices and keeps an empty selection editable on phone", async ({
   page,
 }) => {
-  await page.goto("/demo");
+  await page.goto("/demo?view=department");
   await page.getByRole("button", { name: "עובדים", exact: true }).click();
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "עובד חדש", exact: true }).click();
@@ -407,7 +414,7 @@ test("weekly availability is optional, supports quick choices and keeps an empty
 test("archived legacy week offers fresh creation and keeps both schedules recoverable", async ({
   page,
 }) => {
-  await page.goto("/demo");
+  await page.goto("/demo?view=department");
   await expect(page.locator(".shift")).toHaveCount(7);
   const original = await page.evaluate(
     () =>
@@ -479,7 +486,7 @@ test("notifications show only published schedules and clear dated change alerts 
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.goto("/demo");
+  await page.goto("/demo?view=department");
   const bell = () =>
     page.locator(".topbar").getByRole("button", { name: /^התראות/ });
   await bell().click();
@@ -487,7 +494,14 @@ test("notifications show only published schedules and clear dated change alerts 
   await expect(
     page.getByText("פרסומים ושינויים בסידורים שפורסמו", { exact: true }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "סידורי עבודה", exact: true }).click();
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "כל הסידורים השבועיים", exact: true })
+    .click();
+  await page
+    .getByRole("region", { name: "לוח שבועי לכל המחלקות" })
+    .getByRole("button", { name: "אחמ״שים", exact: true })
+    .click();
   await page.getByRole("button", { name: "פרסום סידור", exact: true }).click();
   await bell().click();
   const published = page.getByRole("article", {
@@ -580,7 +594,7 @@ test("overview gives clear weekly actions and takes managers directly to the rig
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.goto("/demo");
+  await page.goto("/demo?view=department");
   await page.getByRole("button", { name: "סקירה כללית", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "מצב השבוע", exact: true }),
@@ -630,7 +644,7 @@ test("overview gives clear weekly actions and takes managers directly to the rig
 test("employee overview shows personal published shifts without manager totals or actions", async ({
   page,
 }) => {
-  await page.goto("/demo");
+  await page.goto("/demo?view=department");
   await page.getByRole("button", { name: "פרסום סידור", exact: true }).click();
   await page
     .getByLabel("תצוגת הדגמה")
@@ -650,7 +664,7 @@ test("employee absence button handles sickness and vacation dates without changi
 }) => {
   // The dated absence fixtures below must remain in the visible week after reload.
   await page.clock.setFixedTime(new Date("2026-11-04T12:00:00Z"));
-  await page.goto("/demo");
+  await page.goto("/demo?view=department");
   await page.getByRole("button", { name: "עובדים", exact: true }).click();
   const employee = page.getByRole("row").filter({ hasText: "דניאל לוי" });
   await expect(page.getByText("טרם הוגשה זמינות", { exact: true })).toHaveCount(

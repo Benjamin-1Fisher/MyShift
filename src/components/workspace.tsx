@@ -83,9 +83,9 @@ type Field = {
   wide?: boolean;
 };
 const nav = [
-  ["dashboard", "סקירה כללית", LayoutDashboard],
-  ["schedule", "סידורי עבודה", CalendarDays],
   ["organization", "כל הסידורים השבועיים", CalendarDays],
+  ["schedule", "המשמרות שלי", CalendarDays],
+  ["dashboard", "סקירה כללית", LayoutDashboard],
   ["employees", "עובדים", Users],
   ["departments", "מחלקות ואתרים", Building2],
   ["ai", "עוזר AI", Sparkles],
@@ -302,7 +302,7 @@ export default function Workspace({
   );
   const [data, setData] = useState<Data>(empty),
     [userId, setUserId] = useState(""),
-    [page, setPage] = useState("schedule"),
+    [selectedPage, setPage] = useState<string | null>(null),
     [week, setWeek] = useState(sunday()),
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
@@ -340,7 +340,7 @@ export default function Workspace({
     setFilter(query.get("department") || "");
     if (!initialViewRead.current) {
       initialViewRead.current = true;
-      if (demo && query.get("view") === "organization") setPage("organization");
+      if (query.get("view") === "department") setPage("schedule");
     }
     if (demo) {
       const { loadDemo, DEMO_ADMIN } = await import("@/lib/demo");
@@ -425,6 +425,14 @@ export default function Workspace({
       : data.profiles.find((p) => p.id === userId),
     isAdmin = profile?.role === "admin",
     canEdit = !!profile && profile.role !== "employee";
+  const page =
+    !canEdit && selectedPage === "organization"
+      ? "schedule"
+      : (selectedPage ?? (canEdit ? "organization" : "schedule"));
+  const pageLabel =
+    page === "schedule" && canEdit
+      ? "שיבוץ מחלקה"
+      : nav.find(([key]) => key === page)?.[1];
   const unreadNotices = scheduleNotices(data.notifications).filter(
     (n) => !n.read,
   ).length;
@@ -498,11 +506,9 @@ export default function Workspace({
   const openOrganization = () => {
     setPage("organization");
     setMenu(false);
-    if (demo) {
-      const url = new URL(window.location.href);
-      url.searchParams.set("view", "organization");
-      window.history.replaceState(null, "", url);
-    }
+    const url = new URL(window.location.href);
+    url.searchParams.delete("view");
+    window.history.replaceState(null, "", url);
   };
   const selectDepartment = (id: string) => {
     setFilter(id);
@@ -510,7 +516,6 @@ export default function Workspace({
     setError("");
     const url = new URL(window.location.href);
     url.searchParams.set("department", id);
-    url.searchParams.delete("view");
     window.history.replaceState(null, "", url);
     setEmployeeFilter("");
     setRoleFilter("");
@@ -519,6 +524,23 @@ export default function Workspace({
     setScheduleFocus("all");
     setLastUndo(null);
     setEditor(null);
+  };
+  const openDepartmentSchedule = (
+    id: string,
+    focus: ScheduleFocus = "all",
+    shift?: Assignment,
+  ) => {
+    selectDepartment(id);
+    if (canEdit) {
+      const url = new URL(window.location.href);
+      url.searchParams.set("view", "department");
+      window.history.replaceState(null, "", url);
+    }
+    setScheduleFocus(focus);
+    setView("week");
+    setPage("schedule");
+    setMenu(false);
+    if (shift) setEditor(shift);
   };
   const archivedSchedules = data.schedule_versions
     .filter(
@@ -981,11 +1003,17 @@ export default function Workspace({
                   "ai",
                   "organization",
                 ].includes(key) &&
-                (key !== "organization" || canEdit),
+                (key !== "organization" || canEdit) &&
+                (key !== "schedule" || !canEdit),
             )
             .map(([key, label, Icon]) => (
               <button
-                className={page === key ? "nav-item active" : "nav-item"}
+                className={
+                  page === key ||
+                  (canEdit && key === "organization" && page === "schedule")
+                    ? "nav-item active"
+                    : "nav-item"
+                }
                 key={key}
                 onClick={() => {
                   if (key === "organization") return openOrganization();
@@ -1083,7 +1111,7 @@ export default function Workspace({
             </button>
             <span className="muted">מרחב העבודה</span>
             <ChevronLeft size={14} />
-            <strong>{nav.find((n) => n[0] === page)?.[1]}</strong>
+            <strong>{pageLabel}</strong>
           </div>
           <div className="row">
             <span className="connection">
@@ -1126,7 +1154,8 @@ export default function Workspace({
                   value={demoEmployee}
                   onChange={(e) => {
                     setDemoEmployee(e.target.value);
-                    setPage("schedule");
+                    if (e.target.value) setPage("schedule");
+                    else openOrganization();
                     setFilter("");
                     setEmployeeFilter("");
                     setSiteFilter("");
@@ -1156,11 +1185,7 @@ export default function Workspace({
               {!["notifications", "dashboard", "organization"].includes(
                 page,
               ) && <span className="eyebrow">ניהול חכם. צוות מחובר.</span>}
-              <h1>
-                {page === "dashboard"
-                  ? "מצב השבוע"
-                  : nav.find((n) => n[0] === page)?.[1]}
-              </h1>
+              <h1>{page === "dashboard" ? "מצב השבוע" : pageLabel}</h1>
               <p className="muted">
                 {page === "dashboard"
                   ? canEdit
@@ -1177,7 +1202,7 @@ export default function Workspace({
               {canEdit && page === "schedule" && (
                 <button type="button" onClick={openOrganization}>
                   <CalendarDays size={17} aria-hidden />
-                  הצגת כל המחלקות
+                  חזרה ללוח השבועי
                 </button>
               )}
               {canEdit &&
@@ -1197,7 +1222,7 @@ export default function Workspace({
                           week,
                           department_id: departmentId,
                         });
-                        setPage("schedule");
+                        openDepartmentSchedule(departmentId);
                         setNotice(
                           "הסידור השבועי נוצר. אפשר להתחיל להוסיף משמרות.",
                         );
@@ -1215,7 +1240,7 @@ export default function Workspace({
                     className="primary"
                     disabled={busy || version?.status === "published"}
                     onClick={() => {
-                      setPage("schedule");
+                      openDepartmentSchedule(departmentId);
                       setShiftDate(week);
                       setEditor(true);
                     }}
@@ -1375,11 +1400,14 @@ export default function Workspace({
               departments={departments}
               week={week}
               onWeek={setWeek}
-              onDepartment={(id) => {
-                selectDepartment(id);
-                setView("week");
-                setPage("schedule");
-              }}
+              onDepartment={openDepartmentSchedule}
+              onOpenShift={(shift, isDraft) =>
+                openDepartmentSchedule(
+                  shift.department_id,
+                  "open",
+                  isDraft ? shift : undefined,
+                )
+              }
             />
           )}
           {page === "dashboard" && (
@@ -1394,10 +1422,12 @@ export default function Workspace({
               }
               onWeekChange={setWeek}
               onNavigate={(department, target, focus = "all") => {
-                selectDepartment(department);
-                setScheduleFocus(focus);
-                setView("week");
-                setPage(target);
+                if (target === "schedule")
+                  openDepartmentSchedule(department, focus);
+                else {
+                  selectDepartment(department);
+                  setPage(target);
+                }
               }}
             />
           )}
@@ -2425,10 +2455,8 @@ export default function Workspace({
                 })
               }
               onOpenSchedule={(department, targetWeek) => {
-                selectDepartment(department);
                 setWeek(targetWeek);
-                setView("week");
-                setPage("schedule");
+                openDepartmentSchedule(department);
               }}
             />
           )}

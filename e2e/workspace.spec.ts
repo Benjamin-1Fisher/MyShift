@@ -30,6 +30,9 @@ test("landing and demo fit phone and navigation works", async ({ page }) => {
   await expect(
     page.getByText("מצב הדגמה — נתונים לדוגמה", { exact: true }),
   ).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: "לוח שבועי לכל המחלקות" }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "תפריט", exact: true }).click();
   await page.getByRole("button", { name: "עובדים", exact: true }).click();
   await expect(
