@@ -695,8 +695,8 @@ test("mobile weekly navigation stays compact and keeps context with 13 long depa
 
   await days.getByRole("button", { name: /^שבת/ }).click();
   await roster.getByRole("button", { name: /פנויות לשיבוץ/ }).click();
-  await expect(roster.getByText("אין תוצאות ביום הזה.")).toBeVisible();
-  await roster.getByRole("button", { name: /^מעבר ליום חמישי/ }).click();
+  await expect(days.getByRole("button", { name: /^שבת/ })).toBeDisabled();
+  await expect(days.getByRole("button", { name: /^שלישי/ })).toBeEnabled();
   await expect(days.getByRole("button", { name: /^חמישי/ })).toHaveAttribute(
     "aria-pressed",
     "true",

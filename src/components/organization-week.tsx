@@ -53,8 +53,8 @@ const filters = [
   {
     key: "unpublished",
     label: "ממתינים לפרסום",
-    short: "טיוטות",
-    shown: "טיוטות מחלקה בלבד",
+    short: "לפני פרסום",
+    shown: "רק מחלקות עם טיוטה שממתינה לפרסום",
   },
 ] as const;
 type BoardFilter = "all" | (typeof filters)[number]["key"];
@@ -102,12 +102,11 @@ export default function OrganizationWeek({
   const draftCount = board.rows.filter((row) => row.status === "draft").length;
   const today = localDate(new Date().toISOString());
   const currentWeek = sunday();
-  const day = dates.includes(view.day)
+  const requestedDay = dates.includes(view.day)
     ? view.day
     : dates.includes(today)
       ? today
       : week;
-  const dayIndex = dates.indexOf(day);
   const activeDepartment = departments.some(
     ({ id }) => id === view.departmentId,
   )
@@ -232,23 +231,24 @@ export default function OrganizationWeek({
     )
       rows.push({ ...row, days: filteredDays });
   }
+  const matchingDays = dates.filter((_, index) =>
+    rows.some((row) => row.days[index].length || removedOn(row, index).length),
+  );
+  const requestedIndex = dates.indexOf(requestedDay);
+  const nearestDay = [...matchingDays].sort(
+    (a, b) =>
+      Math.abs(dates.indexOf(a) - requestedIndex) -
+      Math.abs(dates.indexOf(b) - requestedIndex),
+  )[0];
+  const day =
+    view.filter === "all" ? requestedDay : (nearestDay ?? requestedDay);
+  const dayIndex = dates.indexOf(day);
   const dailyRows =
     view.filter === "all"
       ? rows
       : rows.filter(
           (row) => row.days[dayIndex].length || removedOn(row, dayIndex).length,
         );
-  const nearestDay = dates
-    .filter((_, index) =>
-      rows.some(
-        (row) => row.days[index].length || removedOn(row, index).length,
-      ),
-    )
-    .sort(
-      (a, b) =>
-        Math.abs(dates.indexOf(a) - dayIndex) -
-        Math.abs(dates.indexOf(b) - dayIndex),
-    )[0];
   const end = dates[6];
   const year = week.slice(0, 4);
   const startDate =
@@ -550,7 +550,7 @@ export default function OrganizationWeek({
             </div>
             {view.filter !== "all" && (
               <p className={styles.filterStatus} role="status">
-                מוצגות {filters.find(({ key }) => key === view.filter)?.shown}
+                תצוגה: {filters.find(({ key }) => key === view.filter)?.shown}
                 {" · "}
                 {counts[view.filter]}{" "}
                 {view.filter === "unpublished" ? "מחלקות" : "בכל השבוע"}
@@ -605,7 +605,13 @@ export default function OrganizationWeek({
                 <button
                   type="button"
                   key={date}
-                  aria-pressed={day === date}
+                  disabled={
+                    view.filter !== "all" && !matchingDays.includes(date)
+                  }
+                  aria-pressed={
+                    day === date &&
+                    (view.filter === "all" || matchingDays.includes(date))
+                  }
                   aria-label={weekdays[index] + " " + dateLabel(date)}
                   aria-describedby={
                     attentionLabel(dayAttention[index])
@@ -660,16 +666,7 @@ export default function OrganizationWeek({
               ))}
               {!dailyRows.length && (
                 <div className={styles.empty}>
-                  <p>אין תוצאות ביום הזה.</p>
-                  {nearestDay && nearestDay !== day && (
-                    <button
-                      type="button"
-                      onClick={() => onView({ ...view, day: nearestDay })}
-                    >
-                      מעבר ליום {weekdays[dates.indexOf(nearestDay)]} ·{" "}
-                      {dateLabel(nearestDay)}
-                    </button>
-                  )}
+                  <p>אין ימים עם תוצאות למסנן הזה בשבוע הנבחר.</p>
                 </div>
               )}
             </div>

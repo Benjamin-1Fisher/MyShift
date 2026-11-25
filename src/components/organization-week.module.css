@@ -443,3 +443,11 @@
     width: 23mm;
   }
 }
+
+.board :global(.org-day-picker button:disabled) {
+  opacity: 0.48;
+}
+
+.filters button[data-filter="unpublished"] {
+  white-space: normal;
+}
