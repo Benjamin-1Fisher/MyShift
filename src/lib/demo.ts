@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { adminSchema } from "./admin-schema";
+import { canAssign } from "./planner";
 import { isWeeklyAvailable } from "./weekly-availability";
 import { absenceInterval, isAbsence } from "./absences";
 import {
@@ -40,6 +41,7 @@ type Store = {
   data: Data;
   pending: Pending[];
   departmentsUpgraded?: boolean;
+  sampleSchedulesAdded?: boolean;
   publications?: Record<string, PublicationSnapshot>;
 };
 const rowSchema = z.object({ id: z.string() }).catchall(z.unknown());
@@ -156,7 +158,9 @@ export function seedDemo(): Store {
       created_at: new Date().toISOString(),
     },
   ];
-  return preparePublications(upgradeDemo({ schema: 1, data, pending: [] }));
+  const store = upgradeDemo({ schema: 1, data, pending: [] });
+  addSampleSchedules(store);
+  return preparePublications(store);
 }
 
 function preparePublications(store: Store): Store {
@@ -306,6 +310,92 @@ export function upgradeDemo(store: Store): Store {
   return store;
 }
 
+// Fill the week the demo opens on, once per browser. Keep user-created and
+// archived schedules, and leave scheduling templates under the manager's control.
+function addSampleSchedules(store: Store) {
+  if (store.sampleSchedulesAdded) return;
+  const { data } = store;
+  const currentWeek = sunday();
+  const weeks = data.schedule_versions.map((version) =>
+    String(version.week_start),
+  );
+  const week = weeks.includes(currentWeek) ? currentWeek : weeks.sort().at(-1);
+  store.sampleSchedulesAdded = true;
+  if (!week) return;
+
+  for (const [number, siteNumber, times] of [
+    [
+      10,
+      3,
+      [
+        ["08:00", "14:00"],
+        ["14:00", "20:00"],
+      ],
+    ],
+    [
+      11,
+      4,
+      [
+        ["06:00", "14:00"],
+        ["14:00", "22:00"],
+      ],
+    ],
+  ] as const) {
+    const department_id = fixed(number);
+    const role_id = fixed(number + 600);
+    const site_id = fixed(siteNumber);
+    if (
+      !data.departments.some(
+        (row) => row.id === department_id && row.active !== false,
+      ) ||
+      !data.roles.some(
+        (row) => row.id === role_id && row.department_id === department_id,
+      ) ||
+      !data.sites.some((row) => row.id === site_id) ||
+      data.schedule_versions.some(
+        (row) => row.department_id === department_id && row.week_start === week,
+      )
+    )
+      continue;
+
+    const version_id = uid();
+    const shifts: Assignment[] = [];
+    for (let day = 0; day < 7; day++) {
+      for (const [slot, [start, end]] of times.entries()) {
+        const shift: Assignment = {
+          id: uid(),
+          version_id,
+          department_id,
+          role_id,
+          site_id,
+          employee_id: null,
+          ...interval(addDays(week, day), start, end),
+        };
+        if (duration(shift) > Number(data.settings[0]?.max_shift_hours ?? 12))
+          continue;
+        const employee = fixed(number * 10 + 700 + slot);
+        if (
+          canAssign(data, shift, employee, [
+            ...data.shift_assignments,
+            ...shifts,
+          ])
+        )
+          shift.employee_id = employee;
+        shifts.push(shift);
+      }
+    }
+    if (!shifts.length) continue;
+    data.schedule_versions.push({
+      id: version_id,
+      department_id,
+      week_start: week,
+      status: "draft",
+      revision: 0,
+    });
+    data.shift_assignments.push(...shifts);
+  }
+}
+
 function write(store: Store) {
   try {
     localStorage.setItem(DEMO_KEY, JSON.stringify(store));
@@ -339,6 +429,7 @@ function read(): Store {
     );
     const before = JSON.stringify(store);
     upgradeDemo(store);
+    addSampleSchedules(store);
     preparePublications(store);
     if (JSON.stringify(store) !== before) write(store);
     return store;

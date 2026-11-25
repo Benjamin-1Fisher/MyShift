@@ -603,7 +603,7 @@ test("overview gives clear weekly actions and takes managers directly to the rig
   await expect(page.locator(".ai-promo")).toHaveCount(0);
   await expect(
     page.getByRole("article", { name: "קבלה", exact: true }),
-  ).toContainText("יש להגדיר שעות");
+  ).toContainText("בדיקה ופרסום");
   await page.screenshot({ path: "work/overview-desktop.png", fullPage: true });
   await page
     .locator(".overview-metrics")

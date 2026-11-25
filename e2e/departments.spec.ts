@@ -15,7 +15,10 @@ test("departments isolate workers, templates, custom overnight shifts and public
   await expect(page.locator(".shift select").first()).not.toContainText(
     "דניאל לוי",
   );
-  await tabs.getByRole("tab", { name: "חניונים", exact: true }).click();
+  const parking = page.getByRole("button", { name: "חניונים", exact: true });
+  await page.getByRole("button", { name: "חזרה ללוח השבועי", exact: true }).click();
+  await page.getByRole("button", { name: "השבוע הבא", exact: true }).click();
+  await parking.click();
   await expect(page.locator(".shift")).toHaveCount(0);
   await page.getByRole("button", { name: "הוספת משמרת", exact: true }).click();
   const dialog = page.getByRole("dialog");
@@ -41,12 +44,14 @@ test("departments isolate workers, templates, custom overnight shifts and public
   await expect(page.locator(".shift-time")).toContainText("22:00");
   await page.getByRole("button", { name: "פרסום סידור", exact: true }).click();
   await expect(page.getByText("פורסם", { exact: true })).toBeVisible();
-  await tabs.getByRole("tab", { name: "סיירים", exact: true }).click();
+  await page.getByRole("button", { name: "חזרה ללוח השבועי", exact: true }).click();
+  await page.getByRole("button", { name: "השבוע הנוכחי", exact: true }).click();
+  await page.getByRole("button", { name: "סיירים", exact: true }).click();
   await expect(page.getByText("טיוטה", { exact: true })).toBeVisible();
   await expect(page.locator(".shift")).toHaveCount(14);
   await page.setViewportSize({ width: 390, height: 844 });
   await tabs.getByRole("tab", { name: "קבלה", exact: true }).click();
-  await expect(page.locator(".shift")).toHaveCount(0);
+  await expect(page.locator(".shift")).toHaveCount(14);
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= innerWidth,
@@ -55,7 +60,7 @@ test("departments isolate workers, templates, custom overnight shifts and public
   await page.screenshot({ path: "work/department-mobile.png", fullPage: true });
   await tabs.getByRole("tab", { name: "חניונים", exact: true }).click();
   await page.reload();
-  await expect(page.locator(".shift")).toHaveCount(1);
+  await expect(page.locator(".shift")).toHaveCount(14);
   await expect(
     page.getByRole("tab", { name: "חניונים", exact: true }),
   ).toHaveAttribute("aria-selected", "true");
@@ -103,6 +108,7 @@ test("managers explicitly configure separate reception hours and day-specific st
     .getByRole("navigation")
     .getByRole("button", { name: "כל הסידורים השבועיים", exact: true })
     .click();
+  await page.getByRole("button", { name: "השבוע הבא", exact: true }).click();
   await page
     .getByRole("region", { name: "לוח שבועי לכל המחלקות" })
     .getByRole("button", { name: "קבלה", exact: true })
@@ -112,7 +118,9 @@ test("managers explicitly configure separate reception hours and day-specific st
     .click();
   await expect(page.locator(".shift")).toHaveCount(2);
   await expect(page.locator(".shift-time").first()).toContainText("09:30");
-  await page.getByRole("tab", { name: "אחמ״שים", exact: true }).click();
+  await page.getByRole("button", { name: "חזרה ללוח השבועי", exact: true }).click();
+  await page.getByRole("button", { name: "השבוע הנוכחי", exact: true }).click();
+  await page.getByRole("button", { name: "אחמ״שים", exact: true }).click();
   await expect(page.locator(".shift")).toHaveCount(7);
   await expect(page.locator(".shift-time").first()).toContainText("07:00");
 });
@@ -145,6 +153,12 @@ test("organization board shows all departments across the week, flags gaps and r
     .click();
   await expect(matrix.getByRole("columnheader")).toHaveCount(8);
   await expect(matrix.getByRole("rowheader")).toHaveCount(4);
+  for (const department of ["קבלה", "חניונים"]) {
+    const row = matrix.getByRole("row").filter({
+      has: page.getByRole("button", { name: department, exact: true }),
+    });
+    await expect(row.getByRole("listitem")).toHaveCount(14);
+  }
   await expect(matrix.getByText("דניאל לוי").first()).toBeVisible();
   await expect(matrix.getByText(/מתחם מרכז/).first()).toBeVisible();
   await expect(matrix.getByText("פתוחה לשיבוץ").first()).toBeVisible();
@@ -219,7 +233,7 @@ test("a manager can fill the flagged shift and see the weekly board update", asy
   ).toHaveCount(0);
   await expect(
     board.getByRole("complementary", { name: "דורש טיפול השבוע" }),
-  ).toContainText("מחלקות בלי סידור לשבוע הזה: 2");
+  ).toHaveCount(0);
 
   const storedSchedule = () =>
     page.evaluate(() => localStorage.getItem("myshift.demo.v1"));
