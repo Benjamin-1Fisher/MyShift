@@ -1155,45 +1155,36 @@ export default function Workspace({
         </header>
         {demo && demoReady && (
           <div className="demo-banner" role="region" aria-label="מצב הדגמה">
-            <div>
-              <strong>מצב הדגמה — נתונים לדוגמה</strong>
-              <span>
-                השינויים נשמרים בדפדפן הזה בלבד, ללא מסד משותף. פרסום אינו שולח
-                הודעות לעובדים.
-              </span>
-            </div>
-            <div className="row">
-              <label className="demo-view-label">
-                תצוגה
-                <select
-                  aria-label="תצוגת הדגמה"
-                  value={demoEmployee}
-                  onChange={(e) => {
-                    setDemoEmployee(e.target.value);
-                    if (page === "team-desk") setPage("team-desk");
-                    else if (e.target.value) setPage("schedule");
-                    else openOrganization();
-                    setFilter("");
-                    setEmployeeFilter("");
-                    setSiteFilter("");
-                    setScheduleFocus("all");
-                    setView("week");
-                  }}
-                >
-                  <option value="">מנהל</option>
-                  {data.employees
-                    .filter((e) => e.active)
-                    .map((e) => (
-                      <option key={e.id} value={e.id}>
-                        עובד · {String(e.name)}
-                      </option>
-                    ))}
-                </select>
-              </label>
-              <Link className="button" href="/app">
-                למערכת הארגונית
-              </Link>
-            </div>
+            <label className="demo-view-label">
+              תצוגה
+              <select
+                aria-label="תצוגת הדגמה"
+                value={demoEmployee}
+                onChange={(e) => {
+                  setDemoEmployee(e.target.value);
+                  if (page === "team-desk") setPage("team-desk");
+                  else if (e.target.value) setPage("schedule");
+                  else openOrganization();
+                  setFilter("");
+                  setEmployeeFilter("");
+                  setSiteFilter("");
+                  setScheduleFocus("all");
+                  setView("week");
+                }}
+              >
+                <option value="">מנהל</option>
+                {data.employees
+                  .filter((e) => e.active)
+                  .map((e) => (
+                    <option key={e.id} value={e.id}>
+                      עובד · {String(e.name)}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <Link className="button" href="/app">
+              למערכת הארגונית
+            </Link>
           </div>
         )}
         <div className="content">

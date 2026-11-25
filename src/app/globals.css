@@ -1174,38 +1174,42 @@ button:disabled {
   cursor: not-allowed;
 }
 .demo-banner {
-  padding: 10px 24px;
-  background: #fff5dc;
-  color: #684c10;
-  border-bottom: 1px solid #eed59c;
   display: flex;
-  justify-content: space-between;
-  gap: 16px;
   align-items: center;
-}
-.demo-banner strong,
-.demo-banner span {
-  display: block;
-}
-.demo-banner strong {
-  font-size: 1rem;
-  margin-bottom: 2px;
-}
-.demo-banner span {
-  font-size: 0.9375rem;
-  line-height: 1.4;
-  max-width: 680px;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px clamp(10px, 2vw, 24px);
+  background: #fff;
+  border-bottom: 1px solid var(--line);
 }
 .demo-banner .button,
 .demo-banner select {
+  min-height: 40px;
+  padding-block: 6px;
   font-size: 0.9375rem;
-  background: #fffdf7;
+}
+.demo-banner .button {
+  flex: none;
+  white-space: nowrap;
+  padding-inline: 10px;
 }
 .demo-view-label {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
+  min-width: 0;
+  font-size: 0.9375rem;
   font-weight: bold;
+}
+.demo-view-label select {
+  width: 160px;
+  min-width: 0;
+  text-overflow: ellipsis;
+}
+@media print {
+  .demo-banner {
+    display: none;
+  }
 }
 .setup-nav {
   padding: 22px;
@@ -1331,12 +1335,6 @@ button:disabled {
   color: #77859b;
   border: 0;
 }
-@media (max-width: 1050px) {
-  .demo-banner {
-    padding: 14px 20px;
-    flex-wrap: wrap;
-  }
-}
 @media (max-width: 760px) {
   .welcome-page {
     padding: 0 6%;
@@ -1373,25 +1371,6 @@ button:disabled {
   }
   .welcome-footer {
     flex-direction: column;
-  }
-  .demo-banner {
-    padding: 14px 18px;
-  }
-  .demo-banner > .row {
-    gap: 8px;
-  }
-  .demo-view-label {
-    flex-wrap: wrap;
-  }
-}
-@media print {
-  .demo-banner {
-    display: block !important;
-    background: white;
-    color: black;
-  }
-  .demo-banner .row {
-    display: none;
   }
 }
 
@@ -2290,17 +2269,6 @@ summary {
   .day-header {
     flex-direction: row;
     padding: 10px 14px;
-  }
-  .demo-banner {
-    padding: 10px 14px;
-    gap: 8px;
-  }
-  .demo-banner > .row {
-    width: 100%;
-    justify-content: space-between;
-  }
-  .demo-view-label select {
-    max-width: 150px;
   }
 }
 

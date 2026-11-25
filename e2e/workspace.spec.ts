@@ -27,9 +27,22 @@ test("landing and demo fit phone and navigation works", async ({ page }) => {
     ),
   ).toBe(true);
   await page.getByRole("link", { name: "כניסה להדגמה" }).click();
-  await expect(
-    page.getByText("מצב הדגמה — נתונים לדוגמה", { exact: true }),
-  ).toBeVisible();
+  const controls = page.getByRole("region", { name: "מצב הדגמה" });
+  const view = controls.getByRole("combobox", { name: "תצוגת הדגמה" });
+  const organization = controls.getByRole("link", { name: "למערכת הארגונית" });
+  await expect(view).toBeVisible();
+  await expect(organization).toHaveAttribute("href", "/app");
+  await expect(controls).not.toContainText("נתונים לדוגמה");
+  await expect(controls).not.toContainText("השינויים נשמרים");
+  for (const width of [320, 472, 1440]) {
+    await page.setViewportSize({ width, height: 904 });
+    const viewBox = (await view.boundingBox())!;
+    const linkBox = (await organization.boundingBox())!;
+    expect(Math.abs(viewBox.y - linkBox.y)).toBeLessThan(2);
+    expect(viewBox.x + viewBox.width).toBeLessThanOrEqual(width);
+    expect(linkBox.x).toBeGreaterThanOrEqual(0);
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
   await expect(
     page.getByRole("region", { name: "לוח שבועי לכל המחלקות" }),
   ).toBeVisible();
