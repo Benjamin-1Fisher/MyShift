@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { navigation, openMain } from "./workspace-controls";
 
 test("visitor landing offers demo while setup is separate", async ({
   page,
@@ -47,7 +48,12 @@ test("landing and demo fit phone and navigation works", async ({ page }) => {
     page.getByRole("region", { name: "לוח שבועי לכל המחלקות" }),
   ).toBeVisible();
   await page.getByRole("button", { name: "תפריט", exact: true }).click();
-  await page.getByRole("button", { name: "עובדים", exact: true }).click();
+  await expect(navigation(page).getByRole("button")).toHaveText([
+    "סידור עבודה",
+    "צוות",
+    "הגדרות",
+  ]);
+  await openMain(page, "צוות");
   await expect(
     page.getByRole("row").filter({ hasText: "דניאל לוי" }),
   ).toBeVisible();

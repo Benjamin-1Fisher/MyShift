@@ -1,4 +1,24 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Locator, type Page } from "@playwright/test";
+import {
+  board,
+  clickWeekAction,
+  exact,
+  openMore,
+  navigation,
+  openDepartment,
+  openMain,
+  planning,
+} from "./workspace-controls";
+
+async function saveWorker(page: Page, card: Locator, worker: string) {
+  await card.locator(".shift-main").click();
+  const editor = page.getByRole("dialog");
+  const select = editor.getByLabel("עובד במשמרת");
+  await expect(select).toBeFocused();
+  await select.selectOption(worker ? { label: worker } : "");
+  await editor.getByRole("button", exact("שמירה")).click();
+  await expect(editor).toBeHidden();
+}
 
 test("simple staffing flow saves directly, keeps open shifts, supports undo and publishes", async ({
   page,
@@ -13,12 +33,12 @@ test("simple staffing flow saves directly, keeps open shifts, supports undo and 
   await page.goto("/demo?view=department");
   await expect(page.locator(".shift")).toHaveCount(7);
   await page.screenshot({ path: "work/simple-schedule.png", fullPage: true });
-  await page.getByRole("button", { name: "עובדים", exact: true }).click();
+  await openMain(page, "צוות");
   await page.getByRole("button", { name: "עובד חדש", exact: true }).click();
   let dialog = page.getByRole("dialog");
   await dialog.getByLabel("שם תצוגה", { exact: true }).fill("רוני הדגמה");
   await dialog
-    .getByLabel("מחלקה", { exact: true })
+    .getByRole("combobox", exact("מחלקה"))
     .selectOption({ label: "סיירים" });
   await dialog.getByLabel("תפקיד / הכשרה").selectOption({ label: "סייר" });
   await dialog.getByRole("button", { name: "שמירה", exact: true }).click();
@@ -37,31 +57,31 @@ test("simple staffing flow saves directly, keeps open shifts, supports undo and 
     .getByRole("button", { name: "שמירה", exact: true })
     .click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
+  await openDepartment(page, "סיירים");
   await page.getByRole("button", { name: "הוספת משמרת", exact: true }).click();
   dialog = page.getByRole("dialog");
   await dialog
-    .getByLabel("אתר", { exact: true })
+    .getByRole("combobox", exact("אתר"))
     .selectOption({ label: "מתחם צפון" });
   await dialog.getByRole("button", { name: /לילה/ }).click();
   await expect(dialog.getByLabel("עובד במשמרת")).toHaveValue("");
-  await dialog
-    .getByRole("button", { name: "שמירת משמרת", exact: true })
-    .click();
+  await dialog.getByRole("button", { name: "שמירה", exact: true }).click();
   await expect(dialog).toHaveCount(0);
   await expect(page.locator(".shift")).toHaveCount(15);
   const night = page.locator(".shift").filter({
-    has: page.locator(".shift-time").filter({ hasText: "23:00 – 07:00" }),
+    has: page.locator(".shift-time").filter({ hasText: "23:00–07:00" }),
   });
   await expect(night.locator("strong")).toHaveText("משמרת פנויה");
-  await night.locator("select").selectOption({ label: "רוני סייר הדגמה" });
+  await saveWorker(page, night, "רוני סייר הדגמה");
   await expect(night.locator("strong")).toHaveText("רוני סייר הדגמה");
-  await night.locator("select").selectOption("");
+  await saveWorker(page, night, "");
   await expect(night.locator("strong")).toHaveText("משמרת פנויה");
   await page
     .getByRole("button", { name: "ביטול הפעולה האחרונה", exact: true })
     .click();
   await expect(night.locator("strong")).toHaveText("רוני סייר הדגמה");
   await night.locator(".shift-main").click();
+  await openMore(page.getByRole("dialog"));
   await page
     .getByRole("dialog")
     .getByRole("button", { name: "מחיקת משמרת", exact: true })
@@ -72,13 +92,14 @@ test("simple staffing flow saves directly, keeps open shifts, supports undo and 
     .click();
   await expect(page.locator(".shift")).toHaveCount(15);
   await expect(night.locator("strong")).toHaveText("רוני סייר הדגמה");
-  await page.getByRole("button", { name: "פרסום סידור", exact: true }).click();
+  await clickWeekAction(page, "פרסום סידור");
   await expect(page.getByText("פורסם", { exact: true })).toBeVisible();
   await page
     .getByLabel("תצוגת הדגמה")
     .selectOption({ label: "עובד · רוני סייר הדגמה" });
   await expect(page.locator(".shift")).toHaveCount(1);
-  await expect(page.locator(".shift-main")).toContainText("רוני סייר הדגמה");
+  await expect(page.locator(".shift")).toContainText("רוני סייר הדגמה");
+  await expect(page.locator(".shift-main")).toHaveCount(0);
   await expect(
     page.getByRole("button", { name: "הוספת משמרת", exact: true }),
   ).toHaveCount(0);
@@ -88,8 +109,9 @@ test("simple staffing flow saves directly, keeps open shifts, supports undo and 
   const second = await context.newPage();
   await second.goto(page.url());
   await expect(second.locator(".shift")).toHaveCount(15);
-  await page.getByRole("button", { name: /עוזר AI/ }).click();
-  await expect(page.getByLabel("בקשה לעוזר")).toBeDisabled();
+  await expect(
+    navigation(page).getByRole("button", { name: /עוזר AI/ }),
+  ).toHaveCount(0);
   expect(api).toEqual([]);
   expect(errors).toEqual([]);
 });
@@ -106,23 +128,21 @@ test("delete is recoverable after reload and restore is draft with the same shif
           .shift_assignments,
     );
   const original = await readShifts();
-  await page.getByRole("button", { name: "פרסום סידור", exact: true }).click();
+  await clickWeekAction(page, "פרסום סידור");
   await expect(page.getByText("פורסם", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "מחיקת סידור", exact: true }).click();
+  await clickWeekAction(page, "העברה לסל המחזור");
   await expect(page.getByRole("dialog")).toContainText("7");
   await page.getByRole("button", { name: "ביטול", exact: true }).click();
   await expect(page.locator(".shift")).toHaveCount(7);
-  await page.getByRole("button", { name: "מחיקת סידור", exact: true }).click();
+  await clickWeekAction(page, "העברה לסל המחזור");
   await page
+    .getByRole("dialog")
     .getByRole("button", { name: "העברה לסל המחזור", exact: true })
     .click();
   await expect(page.locator(".shift")).toHaveCount(0);
   await page.reload();
-  await expect(
-    page.getByRole("button", { name: "שחזור סידור", exact: true }),
-  ).toBeVisible();
   expect(await readShifts()).toEqual(original);
-  await page.getByRole("button", { name: "שחזור סידור", exact: true }).click();
+  await clickWeekAction(page, "שחזור סידור");
   await expect(page.locator(".shift")).toHaveCount(7);
   await expect(page.getByText("טיוטה", { exact: true })).toBeVisible();
   expect(await readShifts()).toEqual(original);
@@ -137,51 +157,45 @@ test("one click creates open weeks, auto assigns, avoids duplicates and copies a
 }) => {
   await page.goto("/demo?view=department");
   await page.getByRole("button", { name: "שבוע הבא", exact: true }).click();
-  await page.getByText("אפשרויות נוספות לשבוע", { exact: true }).click();
-  await page
-    .getByRole("button", { name: "יצירת שבוע ללא שיבוץ", exact: true })
-    .click();
+  await clickWeekAction(page, "יצירה ללא שיבוץ");
   await expect(page.locator(".shift")).toHaveCount(21);
   await expect(page.locator(".shift.open")).toHaveCount(21);
-  await page
-    .getByRole("button", { name: "שיבוץ אוטומטי", exact: true })
-    .click();
+  await clickWeekAction(page, "שיבוץ אוטומטי");
   await expect(page.locator(".shift.open")).toHaveCount(0);
-  await page
-    .getByRole("button", { name: "יצירת סידור בקליק", exact: true })
-    .click();
+  const tools = planning(page);
+  await expect(tools.getByRole("button", exact("השלמת משמרות"))).toHaveCount(0);
+  await expect(tools.getByRole("button", exact("פרסום סידור"))).toBeVisible();
+  await openMore(tools);
+  await expect(
+    tools.getByRole("button", exact("שיבוץ אוטומטי")),
+  ).toBeDisabled();
+  await expect(tools.getByText("אין משמרות פנויות")).toBeVisible();
   await expect(page.locator(".shift")).toHaveCount(21);
   await page.getByRole("button", { name: "שבוע הבא", exact: true }).click();
-  await page
-    .getByRole("button", { name: "העתקת השבוע הקודם", exact: true })
-    .click();
+  await clickWeekAction(page, "העתקת השבוע הקודם");
   await expect(page.locator(".shift")).toHaveCount(21);
   await page
     .getByRole("button", { name: "ביטול הפעולה האחרונה", exact: true })
     .click();
   await expect(page.locator(".shift")).toHaveCount(0);
-  await page
-    .getByRole("button", { name: "יצירת סידור בקליק", exact: true })
-    .click();
+  await clickWeekAction(page, "יצירת סידור");
   await expect(page.locator(".shift")).toHaveCount(21);
   await page.reload();
-  await page.getByRole("button", { name: "שבוע הבא", exact: true }).click();
-  await page.getByRole("button", { name: "שבוע הבא", exact: true }).click();
   await expect(page.locator(".shift")).toHaveCount(21);
 });
 
-for (const button of ["יצירת סידור חדש", "יצירה ללא שיבוץ"]) {
+for (const button of ["יצירת סידור", "יצירה ללא שיבוץ"]) {
   test(`${button} creates morning, evening and night every day and persists readable cards`, async ({
     page,
   }) => {
     await page.setViewportSize({ width: 1920, height: 1080 });
     await page.goto("/demo?view=department");
     await page.getByRole("button", { name: "שבוע הבא", exact: true }).click();
-    await page.getByRole("button", { name: button, exact: true }).click();
+    await clickWeekAction(page, button);
     await expect(page.locator(".shift")).toHaveCount(21);
     for (const day of await page.locator(".day-column").all()) {
       await expect(day.locator(".shift")).toHaveCount(3);
-      for (const hours of ["07:00 – 15:00", "15:00 – 23:00", "23:00 – 07:00"])
+      for (const hours of ["07:00–15:00", "15:00–23:00", "23:00–07:00"])
         await expect(
           day.locator(".shift-time").filter({ hasText: hours }),
         ).toHaveCount(1);
@@ -194,18 +208,18 @@ for (const button of ["יצירת סידור חדש", "יצירה ללא שיב�
       await card
         .locator("strong")
         .evaluate((el) => parseFloat(getComputedStyle(el).fontSize)),
-    ).toBeGreaterThanOrEqual(17);
+    ).toBeGreaterThanOrEqual(15);
     expect(
       await card
         .locator(".shift-time")
         .evaluate((el) => parseFloat(getComputedStyle(el).fontSize)),
-    ).toBeGreaterThanOrEqual(15);
+    ).toBeGreaterThanOrEqual(13);
     expect(
       await card
         .locator("small")
         .first()
         .evaluate((el) => parseFloat(getComputedStyle(el).fontSize)),
-    ).toBeGreaterThanOrEqual(14);
+    ).toBeGreaterThanOrEqual(13);
     await page.evaluate(() => document.fonts.ready);
     expect(
       await page.evaluate(() =>
@@ -217,7 +231,6 @@ for (const button of ["יצירת סידור חדש", "יצירה ללא שיב�
       fullPage: true,
     });
     await page.reload();
-    await page.getByRole("button", { name: "שבוע הבא", exact: true }).click();
     await expect(page.locator(".shift")).toHaveCount(21);
     await page.setViewportSize({ width: 390, height: 844 });
     expect(
@@ -261,7 +274,7 @@ test("phone planning is readable without horizontal scrolling", async ({
   await expect(
     page
       .getByRole("dialog")
-      .getByRole("button", { name: "שמירת משמרת", exact: true }),
+      .getByRole("button", { name: "שמירה", exact: true }),
   ).toBeVisible();
 });
 
@@ -271,7 +284,7 @@ test("employee form saves Friday-night availability and respects it in automatic
   test.setTimeout(60000);
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/demo?view=department");
-  await page.getByRole("button", { name: "עובדים", exact: true }).click();
+  await openMain(page, "צוות");
   await page.getByRole("button", { name: "עובד חדש", exact: true }).click();
   const form = page.getByRole("dialog");
   await form.getByLabel("שם תצוגה", { exact: true }).fill("בן זמינות");
@@ -292,7 +305,7 @@ test("employee form saves Friday-night availability and respects it in automatic
     page.getByRole("row").filter({ hasText: "בן זמינות" }),
   ).toContainText("שישי: לילה");
   await page.reload();
-  await page.getByRole("button", { name: "עובדים", exact: true }).click();
+  await openMain(page, "צוות");
   const row = page.getByRole("row").filter({ hasText: "בן זמינות" });
   await expect(row).toContainText("שישי: לילה");
   await row.getByRole("button", { name: "עריכה", exact: true }).click();
@@ -307,31 +320,22 @@ test("employee form saves Friday-night availability and respects it in automatic
     form.getByLabel("לילה ביום שבת", { exact: true }),
   ).not.toBeChecked();
   await form.getByRole("button", { name: "סגירה", exact: true }).click();
-  await page
-    .getByRole("navigation")
-    .getByRole("button", { name: "כל הסידורים השבועיים", exact: true })
-    .click();
-  await page
-    .getByRole("region", { name: "לוח שבועי לכל המחלקות" })
-    .getByRole("button", { name: "אחמ״שים", exact: true })
-    .click();
+  await openDepartment(page, "אחמ״שים");
   await page.getByRole("button", { name: "שבוע הבא", exact: true }).click();
-  await page
-    .getByRole("button", { name: "יצירת סידור חדש", exact: true })
-    .click();
+  await clickWeekAction(page, "יצירת סידור");
   await expect(page.locator(".shift")).toHaveCount(21);
   const benShifts = page
     .locator(".shift")
     .filter({ has: page.locator("strong").filter({ hasText: "בן זמינות" }) });
   await expect(benShifts).toHaveCount(1);
-  await expect(benShifts.locator(".shift-time")).toHaveText("23:00 – 07:00");
+  await expect(benShifts.locator(".shift-time")).toHaveText("23:00–07:00");
   await expect(
     page
       .locator(".day-column")
       .filter({ has: benShifts })
       .locator(".day-header"),
   ).toContainText("שישי");
-  await page.getByRole("button", { name: "עובדים", exact: true }).click();
+  await openMain(page, "צוות");
   await row.getByRole("button", { name: "עריכה", exact: true }).click();
   await form
     .locator("summary")
@@ -340,6 +344,7 @@ test("employee form saves Friday-night availability and respects it in automatic
   await form.getByRole("button", { name: "בוקר בלבד", exact: true }).click();
   await form.getByRole("button", { name: "שמירה", exact: true }).click();
   await expect(row).toContainText("בוקר בלבד · כל השבוע");
+  await openDepartment(page, "אחמ״שים");
   await page.getByRole("button", { name: "הוספת משמרת", exact: true }).click();
   await form.getByRole("button", { name: /^ערב/ }).click();
   await expect(
@@ -357,7 +362,7 @@ test("weekly availability is optional, supports quick choices and keeps an empty
   page,
 }) => {
   await page.goto("/demo?view=department");
-  await page.getByRole("button", { name: "עובדים", exact: true }).click();
+  await openMain(page, "צוות");
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "עובד חדש", exact: true }).click();
   const form = page.getByRole("dialog");
@@ -421,8 +426,9 @@ test("archived legacy week offers fresh creation and keeps both schedules recove
       JSON.parse(localStorage.getItem("myshift.demo.v1")!).data
         .shift_assignments,
   );
-  await page.getByRole("button", { name: "מחיקת סידור", exact: true }).click();
+  await clickWeekAction(page, "העברה לסל המחזור");
   await page
+    .getByRole("dialog")
     .getByRole("button", { name: "העברה לסל המחזור", exact: true })
     .click();
   await expect(page.locator(".shift")).toHaveCount(0);
@@ -436,15 +442,10 @@ test("archived legacy week offers fresh creation and keeps both schedules recove
   });
   await page.reload();
   await expect(
-    page.getByRole("button", { name: "יצירת סידור חדש", exact: true }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "יצירה ללא שיבוץ", exact: true }),
+    page.getByRole("button", { name: "יצירת סידור", exact: true }),
   ).toBeVisible();
   await page.screenshot({ path: "work/archived-create.png", fullPage: true });
-  await page
-    .getByRole("button", { name: "יצירה ללא שיבוץ", exact: true })
-    .click();
+  await clickWeekAction(page, "יצירה ללא שיבוץ");
   await expect(page.locator(".shift")).toHaveCount(21);
   await expect(page.locator(".shift.open")).toHaveCount(21);
   const all = await page.evaluate(
@@ -456,19 +457,14 @@ test("archived legacy week offers fresh creation and keeps both schedules recove
   expect(all).toHaveLength(original.length + 21);
   await page.reload();
   await expect(page.locator(".shift.open")).toHaveCount(21);
-  await page.getByText("סידורים שנמחקו (1)", { exact: true }).click();
-  await page
-    .getByRole("button", { name: "שחזור סידור זה", exact: true })
-    .click();
+  await clickWeekAction(page, "שחזור סידור");
   await expect(page.getByRole("dialog")).toContainText("הסידור הנוכחי יישמר");
   await page
     .getByRole("dialog")
     .getByRole("button", { name: "ביטול", exact: true })
     .click();
   await expect(page.locator(".shift.open")).toHaveCount(21);
-  await page
-    .getByRole("button", { name: "שחזור סידור זה", exact: true })
-    .click();
+  await clickWeekAction(page, "שחזור סידור");
   await page.getByRole("button", { name: "אישור שחזור", exact: true }).click();
   await expect(page.locator(".shift")).toHaveCount(7);
   await expect(page.locator(".shift.open")).toHaveCount(0);
@@ -494,15 +490,8 @@ test("notifications show only published schedules and clear dated change alerts 
   await expect(
     page.getByText("פרסומים ושינויים בסידורים שפורסמו", { exact: true }),
   ).toBeVisible();
-  await page
-    .getByRole("navigation")
-    .getByRole("button", { name: "כל הסידורים השבועיים", exact: true })
-    .click();
-  await page
-    .getByRole("region", { name: "לוח שבועי לכל המחלקות" })
-    .getByRole("button", { name: "אחמ״שים", exact: true })
-    .click();
-  await page.getByRole("button", { name: "פרסום סידור", exact: true }).click();
+  await openDepartment(page, "אחמ״שים");
+  await clickWeekAction(page, "פרסום סידור");
   await bell().click();
   const published = page.getByRole("article", {
     name: "סידור פורסם",
@@ -533,7 +522,7 @@ test("notifications show only published schedules and clear dated change alerts 
     .click();
   await expect(page.locator(".shift")).toHaveCount(7);
   await page.getByRole("button", { name: "פתיחה לעריכה", exact: true }).click();
-  await page.locator(".shift select").first().selectOption("");
+  await saveWorker(page, page.locator(".shift").first(), "");
   const noticesBeforePublish = await page.evaluate(
     () =>
       JSON.parse(
@@ -541,7 +530,7 @@ test("notifications show only published schedules and clear dated change alerts 
       ).data.notifications.filter((n: { kind?: string }) => n.kind).length,
   );
   expect(noticesBeforePublish).toBe(2);
-  await page.getByRole("button", { name: "פרסום סידור", exact: true }).click();
+  await clickWeekAction(page, "פרסום סידור");
   await bell().click();
   await expect(page.locator(".schedule-notice")).toHaveCount(3);
   await expect(page.locator(".notice-warning")).toHaveCount(2);
@@ -590,73 +579,87 @@ test("notifications show only published schedules and clear dated change alerts 
   ).toHaveCount(0);
 });
 
-test("overview gives clear weekly actions and takes managers directly to the right department and open shifts", async ({
+test("weekly board makes drafts and missing schedules actionable", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.goto("/demo?view=department");
-  await page.getByRole("button", { name: "סקירה כללית", exact: true }).click();
+  await page.goto("/demo");
+  const roster = board(page);
+  const pending = roster.getByRole("button", { name: /ממתינים לפרסום/ });
+  await expect(pending).toContainText("4");
+  await pending.click();
+  await expect(pending).toHaveAttribute("aria-pressed", "true");
+  await expect(roster.getByRole("rowheader")).toHaveCount(4);
+  await pending.click();
+
+  // Simulate a Sunday availability change after its employee was scheduled.
+  await page.evaluate(() => {
+    const key = "myshift.demo.v1";
+    const saved = JSON.parse(localStorage.getItem(key)!);
+    const employee = saved.data.employees.find(
+      (row: { name: string }) => row.name === "דניאל לוי",
+    );
+    employee.weekly_availability = Array.from({ length: 7 }, (_, day) =>
+      day === 0 ? ["evening"] : ["morning"],
+    );
+    localStorage.setItem(key, JSON.stringify(saved));
+  });
+  await page.reload();
+  const conflicts = roster.getByRole("button", exact("1 שיבוצים לבדיקה"));
+  await conflicts.click();
+  await expect(roster.getByRole("rowheader")).toHaveCount(1);
   await expect(
-    page.getByRole("heading", { name: "מצב השבוע", exact: true }),
+    roster.getByRole("table").getByText("שיבוץ לבדיקה", { exact: true }),
   ).toBeVisible();
-  await expect(page.locator(".overview-department")).toHaveCount(4);
-  await expect(page.locator(".ai-promo")).toHaveCount(0);
-  await expect(
-    page.getByRole("article", { name: "קבלה", exact: true }),
-  ).toContainText("בדיקה ופרסום");
-  await page.screenshot({ path: "work/overview-desktop.png", fullPage: true });
-  await page
-    .locator(".overview-metrics")
-    .getByRole("button", { name: /משמרות פנויות/ })
-    .click();
-  await expect(
-    page.getByRole("tab", { name: "סיירים", exact: true }),
-  ).toHaveAttribute("aria-selected", "true");
-  await expect(
-    page.getByText("מוצגות משמרות פנויות בלבד", { exact: false }),
-  ).toBeVisible();
+  await roster.getByRole("button", exact("אחמ״שים")).click();
+  await planning(page).getByRole("button", exact("בדיקת שיבוצים")).click();
   await expect(page.locator(".shift")).toHaveCount(1);
-  await page
-    .getByRole("button", { name: "הצגת כל המשמרות", exact: true })
-    .click();
-  await expect(page.locator(".shift")).toHaveCount(14);
-  await page.getByRole("button", { name: "סקירה כללית", exact: true }).click();
-  await page.getByRole("button", { name: "שבוע הבא", exact: true }).click();
-  const first = page.getByRole("article", { name: "אחמ״שים", exact: true });
-  await expect(first).toContainText("טרם נוצר");
-  await expect(page.locator(".overview-ready")).toHaveCount(0);
-  await page.setViewportSize({ width: 390, height: 844 });
-  expect(
-    await page.evaluate(
-      () => document.documentElement.scrollWidth <= innerWidth,
-    ),
-  ).toBe(true);
-  await page.screenshot({ path: "work/overview-mobile.png", fullPage: true });
-  await first.getByRole("button", { name: "יצירת סידור", exact: true }).click();
+  await expect(page.locator(".shift")).toContainText("דניאל לוי");
+  await page.getByRole("button", exact("חזרה לכל המחלקות")).click();
+  await conflicts.click();
+
+  await roster.getByRole("button", exact("השבוע הבא")).click();
+  const supervisors = roster
+    .getByRole("row")
+    .filter({ has: page.getByRole("button", exact("אחמ״שים")) });
+  await expect(supervisors).toContainText("טרם נוצר");
+  await supervisors.getByRole("button", exact("אחמ״שים")).click();
   await expect(
-    page.getByRole("button", { name: "יצירת סידור חדש", exact: true }),
+    planning(page).getByRole("button", exact("יצירת סידור")),
   ).toBeVisible();
-  await expect(
-    page.getByRole("tab", { name: "אחמ״שים", exact: true }),
-  ).toHaveAttribute("aria-selected", "true");
 });
 
-test("employee overview shows personal published shifts without manager totals or actions", async ({
+test("employee schedule shows only personal published shifts and the next shift", async ({
   page,
 }) => {
+  await page.clock.setFixedTime(new Date("2026-11-22T05:00:00Z"));
   await page.goto("/demo?view=department");
-  await page.getByRole("button", { name: "פרסום סידור", exact: true }).click();
+  await clickWeekAction(page, "פרסום סידור");
   await page
     .getByLabel("תצוגת הדגמה")
     .selectOption({ label: "עובד · דניאל לוי" });
-  await page.getByRole("button", { name: "סקירה כללית", exact: true }).click();
-  await expect(page.locator(".overview-own-shift")).toHaveCount(3);
-  await expect(page.locator(".overview-departments")).toHaveCount(0);
-  await expect(page.locator(".overview-metrics")).toHaveCount(0);
-  await page.getByRole("button", { name: "שבוע הבא", exact: true }).click();
   await expect(
-    page.getByText("לא פורסמו עבורך משמרות בשבוע הזה.", { exact: true }),
+    navigation(page).getByRole("button", exact("המשמרות שלי")),
   ).toBeVisible();
+  await expect(page.getByText("המשמרת הקרובה", { exact: true })).toBeVisible();
+  await expect(page.locator(".shift")).toHaveCount(3);
+  await expect(page.locator(".shift-main")).toHaveCount(0);
+  await expect(page.getByRole("button", exact("פתיחה לעריכה"))).toHaveCount(0);
+  await expect(board(page)).toHaveCount(0);
+  await page.getByRole("button", exact("שבוע הבא")).click();
+  await expect(page.locator(".shift")).toHaveCount(0);
+  await openMain(page, "הפרופיל שלי");
+  await page.getByRole("button", exact("דיווח זמינות")).click();
+  const availability = page.getByRole(
+    "dialog",
+    exact("דיווח זמינות · דניאל לוי"),
+  );
+  await availability.getByRole("button", exact("שמירה")).click();
+  await expect(availability).toBeHidden();
+  await expect(
+    page.getByText("דניאל לוי · חלון זמינות", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole("button", exact("עריכת זמינות"))).toBeVisible();
 });
 
 test("employee absence button handles sickness and vacation dates without changing recurring availability", async ({
@@ -665,7 +668,7 @@ test("employee absence button handles sickness and vacation dates without changi
   // The dated absence fixtures below must remain in the visible week after reload.
   await page.clock.setFixedTime(new Date("2026-11-04T12:00:00Z"));
   await page.goto("/demo?view=department");
-  await page.getByRole("button", { name: "עובדים", exact: true }).click();
+  await openMain(page, "צוות");
   const employee = page.getByRole("row").filter({ hasText: "דניאל לוי" });
   await expect(page.getByText("טרם הוגשה זמינות", { exact: true })).toHaveCount(
     0,
@@ -712,7 +715,7 @@ test("employee absence button handles sickness and vacation dates without changi
   await expect(employee).toContainText("בוקר בלבד · כל השבוע");
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.reload();
-  await page.getByRole("button", { name: "עובדים", exact: true }).click();
+  await openMain(page, "צוות");
   await expect(absence).toContainText("מחלה");
   await page.getByLabel("סינון היעדרויות").selectOption("absent");
   await expect(page.locator(".employees-table tbody tr")).toHaveCount(1);

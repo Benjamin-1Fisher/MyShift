@@ -1,0 +1,92 @@
+.picker {
+  position: relative;
+  min-width: 0;
+}
+
+.picker .trigger {
+  justify-content: space-between;
+  max-width: 100%;
+  min-height: 44px;
+  min-width: 0;
+  font-weight: 700;
+}
+
+.trigger span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.picker svg {
+  flex-shrink: 0;
+}
+
+.popover {
+  position: absolute;
+  z-index: 15;
+  inset-block-start: calc(100% + 6px);
+  inset-inline-start: var(--department-popover-start, 0);
+  inset-inline-end: var(--department-popover-end, auto);
+  width: min(320px, calc(100vw - 32px));
+  padding: 8px;
+  border: 1px solid #dce2ef;
+  border-radius: 13px;
+  background: white;
+  box-shadow: 0 12px 32px #18243d22;
+}
+
+.search {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding-inline: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+}
+
+.search input {
+  width: 100%;
+  min-height: 42px;
+  border: 0;
+  font-size: 1rem;
+  background: transparent;
+}
+
+.search:focus-within {
+  outline: 2px solid #9e8fec;
+}
+
+.search input:focus-visible {
+  outline: none;
+}
+
+.options {
+  display: grid;
+  gap: 2px;
+  max-height: min(38dvh, 310px);
+  overflow: auto;
+  margin: 6px 0 0;
+  padding: 3px;
+  list-style: none;
+}
+
+.options button {
+  justify-content: space-between;
+  width: 100%;
+  min-height: 44px;
+  text-align: start;
+  border: 0;
+  overflow-wrap: anywhere;
+}
+
+.options [aria-pressed="true"] {
+  color: #4d3c9d;
+  background: #f0edf9;
+  font-weight: 700;
+}
+
+.empty {
+  margin: 6px;
+  color: var(--muted);
+}
