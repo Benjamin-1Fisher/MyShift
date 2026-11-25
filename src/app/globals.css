@@ -2573,14 +2573,29 @@ summary {
   flex: none;
 }
 
+.workspace-department-title {
+  justify-content: flex-start;
+}
+
 .workspace-back {
-  justify-self: start;
-  border: 0;
-  background: transparent;
+  min-height: 44px;
   color: #5945a8;
-  padding-inline: 4px 10px;
-  min-height: 36px;
   font-weight: 700;
+  white-space: nowrap;
+}
+
+.workspace-department-title .workspace-add-shift {
+  min-height: 44px;
+  margin-inline-start: auto;
+  border-color: #ddd5f6;
+  background: #f1edfc;
+  color: #503b9b;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.workspace-department-title .workspace-add-shift:hover:not(:disabled) {
+  background: #e9e1fa;
 }
 
 .workspace-sections,
@@ -2796,6 +2811,40 @@ summary {
   .workspace-more > summary {
     font-size: 0.9375rem;
     padding-inline: 8px;
+  }
+
+  .workspace-department-title {
+    --department-title-gap: 6px;
+    --department-back-size: 44px;
+    gap: var(--department-title-gap);
+    padding: 5px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: #fff;
+  }
+
+  .workspace-department-title .workspace-back {
+    width: var(--department-back-size);
+    min-height: var(--department-back-size);
+    padding: 0;
+    background: #f7f5fd;
+  }
+
+  .workspace-department-title .workspace-back span {
+    display: none;
+  }
+
+  .workspace-department-title > div {
+    --department-popover-start: calc(
+      -1 * (var(--department-back-size) + var(--department-title-gap))
+    );
+    flex: 1;
+    min-width: 0;
+  }
+
+  .workspace-department-title > div > button {
+    width: 100%;
+    text-align: start;
   }
 
   .planning .day-shifts {

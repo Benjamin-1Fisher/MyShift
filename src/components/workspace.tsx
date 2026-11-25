@@ -497,6 +497,7 @@ export default function Workspace({
   const teamActive = page === "employees" || page === "team-desk";
   const settingsActive = settingsPages.some(([key]) => key === page);
   const managementPage = teamActive || (canEdit && settingsActive);
+  const departmentSchedule = canEdit && page === "schedule";
   const pageLabel =
     page === "schedule"
       ? canEdit
@@ -1568,18 +1569,22 @@ export default function Workspace({
           <div
             className={`workspace-heading ${managementPage ? managementStyles.heading : ""}`}
           >
-            {canEdit && page === "schedule" && (
-              <button
-                className="workspace-back"
-                type="button"
-                onClick={openOrganization}
-              >
-                <ChevronRight size={17} aria-hidden />
-                חזרה לכל המחלקות
-              </button>
-            )}
-            <div className="workspace-title">
-              {canEdit && page === "schedule" && departmentId ? (
+            <div
+              className={`workspace-title ${departmentSchedule ? "workspace-department-title" : ""}`}
+            >
+              {departmentSchedule && (
+                <button
+                  className="workspace-back"
+                  type="button"
+                  aria-label="חזרה לכל המחלקות"
+                  title="חזרה לכל המחלקות"
+                  onClick={openOrganization}
+                >
+                  <ChevronRight size={18} aria-hidden />
+                  <span>חזרה לכל המחלקות</span>
+                </button>
+              )}
+              {departmentSchedule && departmentId ? (
                 <h1 className="sr-only">
                   סידור מחלקת {name("departments", departmentId)}
                 </h1>
@@ -1596,11 +1601,15 @@ export default function Workspace({
                     label="מחלקה"
                   />
                 )}
-              {canEdit &&
-                page === "schedule" &&
+              {departmentSchedule &&
                 departmentId &&
                 version?.status !== "published" && (
-                  <button disabled={busy} onClick={() => openShift(true)}>
+                  <button
+                    className="workspace-add-shift"
+                    type="button"
+                    disabled={busy}
+                    onClick={() => openShift(true)}
+                  >
                     <Plus size={17} aria-hidden /> הוספת משמרת
                   </button>
                 )}

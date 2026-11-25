@@ -534,7 +534,28 @@ test("mobile weekly navigation stays compact and keeps context with 13 long depa
     .getByRole("button", { name: /^ראשון/ })
     .getAttribute("aria-label");
   await departments.getByRole("button", exact(names[8])).click();
-  await page.getByRole("button", exact("חזרה לכל המחלקות")).click();
+  const back = page.getByRole("button", exact("חזרה לכל המחלקות"));
+  const picker = page.getByRole("button", exact(`מחלקה · ${names[8]}`));
+  const addShift = page.getByRole("button", exact("הוספת משמרת"));
+  for (const width of [320, 472]) {
+    await page.setViewportSize({ width, height: 904 });
+    const [backBox, pickerBox, addBox] = await Promise.all(
+      [back, picker, addShift].map((button) => button.boundingBox()),
+    );
+    expect(backBox!.y).toBeCloseTo(pickerBox!.y);
+    expect(addBox!.y).toBeCloseTo(pickerBox!.y);
+    expect(addBox!.x).toBeGreaterThanOrEqual(0);
+    expect(pickerBox!.width).toBeGreaterThan(90);
+    await picker.click();
+    const options = page.getByRole("group", exact("מחלקה"));
+    await expect(options.getByRole("textbox")).toBeFocused();
+    const panel = (await options.boundingBox())!;
+    expect(panel.x).toBeGreaterThanOrEqual(0);
+    expect(panel.x + panel.width).toBeLessThanOrEqual(width);
+    await page.keyboard.press("Escape");
+    await expect(picker).toBeFocused();
+  }
+  await back.click();
   await expect(
     roster.getByRole("button", { name: /ממתינים לפרסום/ }),
   ).toHaveAttribute("aria-pressed", "true");

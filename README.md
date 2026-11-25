@@ -56,7 +56,7 @@ npm run dev
 | :---: | :---: | :---: |
 | <img src="docs/screenshots/roster-mobile.png" alt="לוח שבועי בטלפון עם בחירת יום ומחלקה" width="240"> | <img src="docs/screenshots/shift-editor-mobile.png" alt="עורך משמרת עם בחירת עובד ושמירה" width="240"> | <img src="docs/screenshots/employee-mobile.png" alt="סידור אישי שפורסם לעובד בדמו" width="240"> |
 
-[צוות בטלפון](docs/screenshots/team-mobile.png) · [הגדרות בטלפון](docs/screenshots/settings-mobile.png) · [תלושים ותזכורות](docs/screenshots/team-desk.png) · [דף הפתיחה במחשב](docs/screenshots/home-schedule-desktop.png) · [דף הפתיחה בטלפון](docs/screenshots/home-schedule-mobile.png)
+[סידור מחלקה בטלפון](docs/screenshots/department-mobile.png) · [צוות בטלפון](docs/screenshots/team-mobile.png) · [הגדרות בטלפון](docs/screenshots/settings-mobile.png) · [תלושים ותזכורות](docs/screenshots/team-desk.png) · [דף הפתיחה במחשב](docs/screenshots/home-schedule-desktop.png) · [דף הפתיחה בטלפון](docs/screenshots/home-schedule-mobile.png)
 
 ### משמרות בשבוע הראשון בדמו
 
