@@ -945,9 +945,17 @@ export default function Workspace({
         <section className="connection-card">
           <h1>{demo ? "טוענים את ההדגמה" : "כניסה ל־MyShift"}</h1>
           {demo ? (
-            <p role={error ? "alert" : "status"}>
-              {error || "מכינים את לוח העבודה המקומי…"}
-            </p>
+            <>
+              <p role={error ? "alert" : "status"}>
+                {error || "מכינים את לוח העבודה המקומי…"}
+              </p>
+              <p>הלוח לא נפתח? אפשר לטעון מחדש בלי לאפס את השיבוצים השמורים.</p>
+              <p>
+                {/* A native same-page link works even if the client bundle has not loaded. */}
+                <a className="button" href="">טעינת ההדגמה מחדש</a>
+              </p>
+              <noscript><p>הצגת הלוח דורשת JavaScript.</p></noscript>
+            </>
           ) : (
             <>
               <Link className="button" href="/demo">

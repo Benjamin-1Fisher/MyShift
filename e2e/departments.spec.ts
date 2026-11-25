@@ -191,7 +191,7 @@ test("a manager can fill the flagged shift and see the weekly board update", asy
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto("/demo");
+  await page.goto("/demo?view=organization");
   const board = page.getByRole("region", { name: "לוח שבועי לכל המחלקות" });
   await board.getByRole("button", { name: "שבץ עובד", exact: true }).click();
   const form = page.getByRole("dialog", { name: "עריכת משמרת" });
@@ -220,6 +220,30 @@ test("a manager can fill the flagged shift and see the weekly board update", asy
   await expect(
     board.getByRole("complementary", { name: "דורש טיפול השבוע" }),
   ).toContainText("מחלקות בלי סידור לשבוע הזה: 2");
+
+  const storedSchedule = () =>
+    page.evaluate(() => localStorage.getItem("myshift.demo.v1"));
+  const beforeRecovery = await storedSchedule();
+  const recoveryUrl = page.url();
+  expect(new URL(recoveryUrl).searchParams.get("department")).toBeTruthy();
+  expect(beforeRecovery).toBeTruthy();
+  const bootstrapScripts = /\/_next\/static\/.*\.js(?:\?|$)/;
+  await page.route(bootstrapScripts, (route) => route.abort());
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect(page.getByRole("heading", { name: "טוענים את ההדגמה" })).toBeVisible();
+  const recovery = page.getByRole("link", { name: "טעינת ההדגמה מחדש", exact: true });
+  await expect(recovery).toBeVisible();
+  expect(await storedSchedule()).toBe(beforeRecovery);
+  await page.unroute(bootstrapScripts);
+  const navigated = page.waitForEvent("framenavigated", {
+    predicate: (frame) => frame === page.mainFrame(),
+  });
+  await recovery.click();
+  await navigated;
+  await expect(page).toHaveURL(recoveryUrl);
+  await expect(board.getByRole("button", { name: "0 פתוחות לשיבוץ", exact: true })).toBeVisible();
+  expect(await storedSchedule()).toBe(beforeRecovery);
+
 });
 
 test("printing from the phone view includes all seven days and ignores the open-shift filter", async ({
