@@ -1,10 +1,10 @@
 import { test, expect, type Page } from "@playwright/test";
+import type { Data } from "../src/lib/domain";
 import {
   board,
   chooseDepartment,
   clickWeekAction,
   exact,
-  openMore,
   navigation,
   openMain,
 } from "./workspace-controls";
@@ -279,7 +279,6 @@ test("printing from the phone view includes all seven days and ignores the open-
   await board.getByRole("button", { name: /פנויות לשיבוץ/ }).click();
   const sheet = board.locator(".org-print-sheet");
   await expect(sheet).toBeHidden();
-  await openMore(board);
   await board.getByRole("button", { name: "הדפסה / PDF", exact: true }).click();
   await expect(page.locator("html")).toHaveAttribute(
     "data-print-requested",
@@ -294,6 +293,101 @@ test("printing from the phone view includes all seven days and ignores the open-
   await expect(sheet.getByText("נתוני דוגמה בלבד")).toBeVisible();
   await expect(page.locator(".sidebar")).toBeHidden();
   await expect(page.locator(".org-mobile")).toBeHidden();
+});
+
+test("weekly planning previews without saving, rejects stale drafts, and preserves assigned shifts", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 472, height: 904 });
+  await page.clock.setFixedTime(new Date("2026-11-25T12:00:00Z"));
+  await page.goto("/demo");
+  const roster = board(page);
+  const plan = roster.getByRole("button", exact("תכנון שבועי"));
+  const department = roster.getByRole(
+    "button",
+    exact("סינון לפי מחלקה · כל המחלקות"),
+  );
+  await expect(plan).toBeVisible();
+  for (const width of [472, 320]) {
+    await page.setViewportSize({ width, height: 904 });
+    expect((await plan.boundingBox())!.y).toBe(
+      (await department.boundingBox())!.y,
+    );
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+  }
+
+  const storageKey = "myshift.demo.v1";
+  const snapshot = () =>
+    page.evaluate((key) => {
+      const { schedule_versions, shift_assignments } = (
+        JSON.parse(localStorage.getItem(key)!) as { data: Data }
+      ).data;
+      return { schedule_versions, shift_assignments };
+    }, storageKey);
+  const before = await snapshot();
+  const target = before.schedule_versions.find(
+    (row) => row.week_start === "2026-11-22" && row.status === "draft",
+  )!;
+  const dialog = page.getByRole("dialog", exact("תכנון שבועי"));
+  const save = dialog.getByRole("button", exact("אישור ושמירה כטיוטה"));
+  await plan.click();
+  await expect(
+    dialog.getByRole("button", exact("מחלקה לתכנון · אחמ״שים")),
+  ).toBeVisible();
+  await expect(save).toBeEnabled();
+  expect(await snapshot()).toEqual(before);
+  await dialog.getByRole("button", exact("ביטול")).click();
+  await expect(dialog).toBeHidden();
+  expect(await snapshot()).toEqual(before);
+
+  await plan.click();
+  await page.evaluate(
+    ({ key, versionId }) => {
+      const store = JSON.parse(localStorage.getItem(key)!) as { data: Data };
+      const row = store.data.schedule_versions.find(
+        (row) => row.id === versionId,
+      )!;
+      row.revision = Number(row.revision) + 1;
+      localStorage.setItem(key, JSON.stringify(store));
+    },
+    { key: storageKey, versionId: target.id },
+  );
+  const current = await snapshot();
+  await save.click();
+  await expect(dialog.getByRole("alert")).toContainText("הסידור השתנה");
+  expect(await snapshot()).toEqual(current);
+
+  await dialog.getByRole("button", exact("רענון הצעה")).click();
+  await save.click();
+  await expect(dialog).toBeHidden();
+  const after = await snapshot();
+  expect(after.shift_assignments.length).toBeGreaterThan(
+    current.shift_assignments.length,
+  );
+  expect(after.shift_assignments).toEqual(
+    expect.arrayContaining(current.shift_assignments),
+  );
+  expect(
+    after.schedule_versions.find((row) => row.id === target.id),
+  ).toMatchObject({
+    status: "draft",
+    revision: Number(target.revision) + 2,
+  });
+  expect(after.schedule_versions.filter((row) => row.id !== target.id)).toEqual(
+    before.schedule_versions.filter((row) => row.id !== target.id),
+  );
+
+  await page.goto("/demo?week=2026-12-27");
+  await expect(plan).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
 });
 
 test("synthetic payroll reaches the selected employee, and birthdays stay in the manager view", async ({

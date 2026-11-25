@@ -197,7 +197,7 @@ export function planWeek(
     }
   }
   const working = data.shift_assignments.concat(created).map((a) => ({ ...a }));
-  const operations: Operation[] = [];
+  const operations: (Assignment & { kind: "create" | "update" })[] = [];
   const targets = (
     mode === "open"
       ? created

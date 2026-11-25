@@ -30,12 +30,9 @@ export async function clickWeekAction(page: Page, name: string) {
 }
 
 export async function openMain(page: Page, name: string) {
-  const nav = navigation(page);
-  await expect(nav).toBeAttached();
-  const item = nav.getByRole("button", exact(name));
   const menu = page.getByRole("button", exact("תפריט"));
-  if ((await menu.isVisible()) && !(await item.isVisible())) await menu.click();
-  await item.click();
+  if (await menu.isVisible()) await menu.click();
+  await navigation(page).getByRole("button", exact(name)).click();
 }
 
 export async function openDepartment(page: Page, name: string) {

@@ -19,6 +19,32 @@ test("visitor landing offers demo while setup is separate", async ({
   ).toBeVisible();
 });
 
+test("mobile drawer dismisses outside and returns keyboard focus", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 472, height: 904 });
+  await page.goto("/demo");
+  const trigger = page.getByRole("button", { name: "תפריט", exact: true });
+  const drawer = page.getByRole("dialog", { name: "תפריט ניווט" });
+  await trigger.click();
+  await expect(drawer).toBeVisible();
+  await expect(drawer.getByRole("button", { name: "סגירת תפריט" })).toBeFocused();
+  await page.mouse.click(24, 300);
+  await expect(drawer).toBeHidden();
+  await expect(trigger).toBeFocused();
+
+  await trigger.press("Enter");
+  await expect(drawer).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(drawer).toBeHidden();
+  await expect(trigger).toBeFocused();
+
+  await trigger.click();
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await expect(drawer).toBeHidden();
+  await expect(navigation(page)).toBeVisible();
+});
+
 test("landing and demo fit phone and navigation works", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");

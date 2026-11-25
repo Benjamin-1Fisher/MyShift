@@ -952,10 +952,6 @@ footer span {
 @media (max-width: 760px) {
   .sidebar {
     display: none;
-    box-shadow: -20px 0 60px #0003;
-  }
-  .sidebar.visible {
-    display: flex;
   }
   main {
     margin: 0;
@@ -1057,6 +1053,7 @@ footer span {
 }
 @media print {
   .sidebar,
+  .workspace-nav-scrim,
   .topbar,
   .page-heading,
   .setup-banner,
@@ -2430,6 +2427,113 @@ summary {
 
 .sidebar .profile {
   margin-block-start: auto;
+}
+
+.workspace-nav-scrim,
+.sidebar.workspace-nav-drawer {
+  display: none;
+}
+
+@media screen and (max-width: 760px) {
+  .workspace-nav-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 39;
+    background: #121b32a6;
+  }
+
+  .sidebar.workspace-nav-drawer {
+    display: flex;
+    z-index: 40;
+    width: min(282px, 86vw);
+    padding: max(16px, env(safe-area-inset-top)) 14px
+      max(14px, env(safe-area-inset-bottom));
+    box-shadow: -12px 0 36px #111a343d;
+    overscroll-behavior: contain;
+  }
+
+  .workspace-nav-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .workspace-nav-heading .brand {
+    font-size: 1.625rem;
+  }
+
+  .workspace-nav-heading button {
+    min-width: 40px;
+    min-height: 40px;
+    padding: 0;
+    border-color: #ffffff26;
+    background: #ffffff0d;
+    color: #fff;
+  }
+
+  .workspace-nav-heading button:hover {
+    background: #ffffff24;
+  }
+
+  .workspace-nav-drawer nav[aria-label="ניווט ראשי"] {
+    margin-block: 18px;
+  }
+}
+
+@media screen and (max-width: 760px) and (prefers-reduced-motion: no-preference) {
+  .workspace-nav-drawer[data-state="open"] {
+    animation: workspace-nav-enter 240ms cubic-bezier(0.2, 0.75, 0.25, 1) both;
+  }
+
+  .workspace-nav-drawer[data-state="closed"] {
+    animation: workspace-nav-exit 180ms ease-in both;
+  }
+
+  .workspace-nav-scrim[data-state="open"] {
+    animation: workspace-scrim-enter 220ms ease-out both;
+  }
+
+  .workspace-nav-scrim[data-state="closed"] {
+    animation: workspace-scrim-exit 180ms ease-in both;
+  }
+}
+
+@keyframes workspace-nav-enter {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes workspace-nav-exit {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes workspace-scrim-enter {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes workspace-scrim-exit {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
 }
 
 .workspace-heading {

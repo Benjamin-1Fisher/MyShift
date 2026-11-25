@@ -3,7 +3,6 @@ import type { Data } from "../src/lib/domain";
 import {
   clickWeekAction,
   exact,
-  openMore,
   navigation,
   openDepartment,
   openMain,
@@ -62,7 +61,6 @@ test("organization: direct save, undo copied shift, publish, archive and restore
   await expect(planning(page)).toBeVisible();
   await expect(page.locator(".shift")).toHaveCount(1);
   await page.locator(".shift-main").click();
-  await openMore(page.getByRole("dialog"));
   await page.getByRole("button", { name: "שכפול משמרת", exact: true }).click();
   await page.getByRole("button", { name: "שמירה", exact: true }).click();
   await expect(page.locator(".shift")).toHaveCount(2);

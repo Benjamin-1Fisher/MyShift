@@ -81,10 +81,18 @@ test("simple staffing flow saves directly, keeps open shifts, supports undo and 
     .click();
   await expect(night.locator("strong")).toHaveText("רוני סייר הדגמה");
   await night.locator(".shift-main").click();
-  await openMore(page.getByRole("dialog"));
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: "מחיקת משמרת", exact: true })
+  const deleteShift = dialog.getByRole("button", {
+    name: "מחיקת משמרת",
+    exact: true,
+  });
+  await deleteShift.click();
+  await expect(page.locator(".shift")).toHaveCount(15);
+  await expect(dialog.getByRole("button", exact("ביטול"))).toBeFocused();
+  await dialog.getByRole("button", exact("ביטול")).click();
+  await expect(deleteShift).toBeFocused();
+  await deleteShift.click();
+  await dialog
+    .getByRole("button", { name: "אישור מחיקה", exact: true })
     .click();
   await expect(page.locator(".shift")).toHaveCount(14);
   await page

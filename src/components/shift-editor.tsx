@@ -1,7 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { CalendarDays, ChevronDown, MoreHorizontal } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { CalendarDays, ChevronDown, Copy, Trash2 } from "lucide-react";
 import {
   addDays,
   interval,
@@ -74,9 +74,19 @@ export default function ShiftEditor({
   );
   const [employee, setEmployee] = useState(original?.employee_id || "");
   const [detailsOpen, setDetailsOpen] = useState(!existing);
-  const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState<"save" | "delete" | "reload" | null>(
+    null,
+  );
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState("");
   const running = useRef(false);
+  const cancelDelete = useRef<HTMLButtonElement>(null);
+  const deleteButton = useRef<HTMLButtonElement>(null);
+  const busy = pending !== null;
+
+  useEffect(() => {
+    if (confirmDelete) cancelDelete.current?.focus();
+  }, [confirmDelete]);
 
   const lastDay = addDays(week, 6);
   let candidate: Assignment | null = null;
@@ -127,19 +137,23 @@ export default function ShiftEditor({
   const stale =
     !!onReload && /השתנ|רעננ|לא נמצ|סגור לעריכה|במצב טיוטה/.test(error);
 
-  async function perform(action: () => Promise<void>) {
+  async function perform(
+    kind: NonNullable<typeof pending>,
+    action: () => Promise<void>,
+  ) {
     if (running.current) return;
     running.current = true;
-    setBusy(true);
+    setPending(kind);
     onBusyChange?.(true);
     setError("");
     try {
       await action();
     } catch (failure) {
+      setConfirmDelete(false);
       setError((failure as Error).message);
     } finally {
       running.current = false;
-      setBusy(false);
+      setPending(null);
       onBusyChange?.(false);
     }
   }
@@ -155,7 +169,8 @@ export default function ShiftEditor({
       aria-busy={busy}
       onSubmit={(event) => {
         event.preventDefault();
-        if (workerUnavailable || stale || running.current) return;
+        if (workerUnavailable || stale || confirmDelete || running.current)
+          return;
         if (!candidate) {
           setDetailsOpen(true);
           setError(
@@ -165,7 +180,7 @@ export default function ShiftEditor({
           );
           return;
         }
-        void perform(() =>
+        void perform("save", () =>
           onSave({
             ...candidate,
             kind: existing ? "update" : "create",
@@ -200,7 +215,7 @@ export default function ShiftEditor({
           <select
             aria-label="עובד במשמרת"
             data-shift-initial-focus={(existing && !!candidate) || undefined}
-            disabled={!candidate || busy || stale}
+            disabled={!candidate || busy || stale || confirmDelete}
             value={employee}
             aria-invalid={workerUnavailable || undefined}
             aria-describedby={
@@ -244,7 +259,10 @@ export default function ShiftEditor({
         >
           פרטי משמרת <ChevronDown aria-hidden="true" size={16} />
         </summary>
-        <fieldset disabled={busy || stale} className={styles.fields}>
+        <fieldset
+          disabled={busy || stale || confirmDelete}
+          className={styles.fields}
+        >
           {templates.length > 0 && (
             <div className={styles.presets} aria-label="שעות מהירות">
               {templates.map((template) => {
@@ -350,46 +368,78 @@ export default function ShiftEditor({
             <button
               type="button"
               disabled={busy}
-              onClick={() => void perform(onReload!)}
+              onClick={() => void perform("reload", onReload!)}
             >
               טעינת הפרטים העדכניים
             </button>
           )}
         </div>
       )}
-      <div className={styles.actions}>
-        <button
-          type="submit"
-          className="primary"
-          disabled={busy || workerUnavailable || stale}
+      {confirmDelete ? (
+        <div
+          className={styles.confirmDelete}
+          role="group"
+          aria-label="אישור מחיקה"
         >
-          {busy ? "שומר…" : "שמירה"}
-        </button>
-        {existing && original && (
-          <details className={styles.more}>
-            <summary>
-              <MoreHorizontal aria-hidden="true" size={17} /> עוד
-            </summary>
-            <div>
+          <p>למחוק את המשמרת הזו מהסידור?</p>
+          <button
+            type="button"
+            ref={cancelDelete}
+            disabled={busy}
+            onClick={() => {
+              setConfirmDelete(false);
+              requestAnimationFrame(() => deleteButton.current?.focus());
+            }}
+          >
+            ביטול
+          </button>
+          <button
+            type="button"
+            className="danger compact"
+            disabled={busy || stale}
+            onClick={() => void perform("delete", onDelete)}
+          >
+            {pending === "delete" ? "מוחק…" : "אישור מחיקה"}
+          </button>
+        </div>
+      ) : (
+        <div className={styles.actions}>
+          <button
+            type="submit"
+            className="primary"
+            disabled={busy || workerUnavailable || stale}
+          >
+            {pending === "save" ? "שומר…" : "שמירה"}
+          </button>
+          {existing && original && (
+            <>
               <button
                 type="button"
                 disabled={busy || stale}
+                aria-label="שכפול משמרת"
                 onClick={() => onCopy(original)}
               >
-                שכפול משמרת
+                <Copy aria-hidden="true" size={16} />
+                שכפול
               </button>
               <button
                 type="button"
-                className="danger compact"
+                ref={deleteButton}
+                className={styles.delete}
                 disabled={busy || stale}
-                onClick={() => void perform(onDelete)}
+                aria-label="מחיקת משמרת"
+                onClick={() => {
+                  setError("");
+                  setConfirmDelete(true);
+                }}
               >
-                מחיקת משמרת
+                <Trash2 aria-hidden="true" size={16} />
+                מחיקה
               </button>
-            </div>
-          </details>
-        )}
-      </div>
+            </>
+          )}
+        </div>
+      )}
     </form>
   );
 }
