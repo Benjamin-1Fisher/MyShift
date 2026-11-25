@@ -17,9 +17,33 @@
   background: #fff8e9;
 }
 
+.card[data-publication-change="added"]:not(.flagged) {
+  --card-accent: #398160;
+  background: #f2fbf5;
+}
+
+.card[data-publication-change="filled"]:not(.flagged) {
+  --card-accent: #3a74aa;
+  background: #f3f8ff;
+}
+
+.card:is(
+    [data-publication-change="changed"],
+    [data-publication-change="replaced"],
+    [data-publication-change="unassigned"]
+  ):not(.flagged) {
+  --card-accent: #a46c23;
+  background: #fff9ee;
+}
+
+.card[data-publication-change="removed"]:not(.flagged) {
+  --card-accent: #946576;
+  background: #f9f3f6;
+}
+
 .card.flagged {
-  --card-accent: #b75340;
-  background: #fff7f4;
+  --card-accent: #ae4359;
+  background: #fff5f7;
   border-inline-start-color: var(--card-accent);
 }
 
@@ -74,8 +98,7 @@
   white-space: nowrap;
 }
 
-.card .overnight,
-.card .conflict {
+.card .overnight {
   color: #834616;
   font-size: 0.75rem;
 }
@@ -105,6 +128,71 @@
 .card .identity small {
   color: #52637a;
   font-size: 0.8125rem;
+}
+
+.card .statuses {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 5px;
+  margin: 4px 0 0;
+}
+
+.card .issue,
+.card .change {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0 4px;
+  margin: 0;
+  max-width: 100%;
+  padding: 2px 5px;
+  border-radius: 5px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.card .issue {
+  align-items: center;
+  background: #fae5eb;
+  color: #8a2e47;
+}
+
+.card .issue svg {
+  flex: none;
+}
+
+.card .change {
+  --change-ink: #754911;
+  --change-surface: #ffedcd;
+  background: var(--change-surface);
+  color: var(--change-ink);
+}
+
+.card .change[data-kind="added"] {
+  --change-ink: #216447;
+  --change-surface: #e4f7ec;
+}
+
+.card .change[data-kind="filled"] {
+  --change-ink: #235b90;
+  --change-surface: #e6f1fd;
+}
+
+.card .change[data-kind="removed"] {
+  --change-ink: #794557;
+  --change-surface: #f2e4eb;
+}
+
+.card .change span {
+  display: inline;
+  color: inherit;
+  font-size: inherit;
+  margin: 0;
+}
+
+.card .change .changeDetail {
+  font-weight: 500;
 }
 
 .card .action {

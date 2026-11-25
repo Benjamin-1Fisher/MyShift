@@ -3,6 +3,7 @@ import { adminSchema } from "./admin-schema";
 import { canAssign } from "./planner";
 import { isWeeklyAvailable } from "./weekly-availability";
 import { absenceInterval, isAbsence } from "./absences";
+import { DEMO_KEY, DEMO_RECEIPTS_KEY } from "./demo-storage";
 import {
   weeklyScheduleSchema,
   type PersonalSchedule,
@@ -31,7 +32,7 @@ import {
 } from "./domain";
 
 // This store is only called from the /demo client. Production never reads it.
-export const DEMO_KEY = "myshift.demo.v1";
+export { DEMO_KEY } from "./demo-storage";
 export const DEMO_ADMIN = "10000000-0000-4000-8000-000000000001";
 const uid = () => crypto.randomUUID();
 const fixed = (n: number) =>
@@ -45,6 +46,7 @@ type Pending = {
 };
 type Store = {
   schema: 1;
+  resetToken?: string;
   data: Data;
   pending: Pending[];
   departmentsUpgraded?: boolean;
@@ -442,6 +444,13 @@ function write(store: Store) {
       "לא ניתן לשמור בדפדפן. בדקו שהאחסון המקומי מותר ושיש מקום פנוי. השינוי לא נשמר.",
     );
   }
+}
+
+export function resetDemo() {
+  const fresh = seedDemo();
+  fresh.resetToken = uid();
+  write(fresh);
+  localStorage.removeItem(DEMO_RECEIPTS_KEY);
 }
 function read(): Store {
   let raw: string | null;

@@ -617,7 +617,7 @@ test("weekly board makes drafts and missing schedules actionable", async ({
   await conflicts.click();
   await expect(roster.getByRole("rowheader")).toHaveCount(1);
   await expect(
-    roster.getByRole("table").getByText("שיבוץ לבדיקה", { exact: true }),
+    roster.getByRole("table").getByText("מחוץ לזמינות הקבועה", { exact: true }),
   ).toBeVisible();
   await departmentScheduleButton(roster, "אחמ״שים").click();
   await planning(page).getByRole("button", exact("בדיקת שיבוצים")).click();
@@ -780,6 +780,12 @@ test("board publishes selected drafts and employees keep their last published sh
   await expect(personalShifts).toHaveCount(originalCount);
 
   await identity.selectOption({ label: "מנהל" });
+  const pendingAssignmentChange = roster.locator(".org-mobile").getByText("פינוי שיבוץ", { exact: true });
+  await expect(pendingAssignmentChange).toBeVisible();
+  await roster.getByRole("button", exact("השבוע הקודם")).click();
+  await expect(pendingAssignmentChange).toHaveCount(0);
+  await roster.getByRole("button", exact("השבוע הבא")).click();
+  await expect(pendingAssignmentChange).toBeVisible();
   await openReview();
   for (const name of [/קבלה/, /חניונים/]) {
     await review.getByRole("checkbox", { name }).uncheck();
@@ -790,6 +796,7 @@ test("board publishes selected drafts and employees keep their last published sh
   await expect(review.getByText(/דניאל לוי.*משמרת פנויה/)).toBeVisible();
   await confirmReview();
   await expect(review).toBeHidden();
+  await expect(pendingAssignmentChange).toHaveCount(0);
   await identity.selectOption({ label: "עובד · דניאל לוי" });
   await expect(personalShifts).toHaveCount(originalCount - 1);
 });

@@ -93,7 +93,8 @@
 .filters {
   display: grid;
   grid-column: 1 / -1;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: auto repeat(4, minmax(0, 1fr));
+  align-items: center;
   gap: 5px;
   min-width: 0;
 }
@@ -108,6 +109,57 @@
   transition:
     background-color 150ms ease,
     border-color 150ms ease;
+}
+
+.filterTitle {
+  color: var(--muted);
+  font-size: 0.875rem;
+  font-weight: 700;
+  padding-inline: 3px;
+}
+
+.filters button:disabled {
+  opacity: 0.65;
+}
+
+.filterStatus {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 5px 8px;
+  border-inline-start: 3px solid #7964cf;
+  border-radius: 5px;
+  color: #514191;
+  background: #f4f0fc;
+  font-size: 0.875rem;
+}
+
+.board :global(.org-day-picker button) {
+  position: relative;
+}
+
+.dayMarker {
+  position: absolute;
+  inset-block-start: 3px;
+  inset-inline-end: 3px;
+  display: grid;
+  place-items: center;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #fff0d7;
+  color: #844f0d;
+  pointer-events: none;
+}
+
+.dayMarker[data-issue="true"] {
+  color: #8a2e47;
+  background: #fbe8ee;
+}
+
+.dayAttention {
+  margin: -2px 0 6px;
+  color: #785123;
+  font-size: 0.875rem;
 }
 
 .filters button strong {
@@ -266,7 +318,7 @@
 
   .filters {
     grid-column: auto;
-    grid-template-columns: repeat(3, auto);
+    grid-template-columns: repeat(5, auto);
   }
 }
 
@@ -314,6 +366,24 @@
     --department-popover-end: auto;
     width: 100%;
   }
+
+  .filterTitle {
+    display: none;
+  }
+
+  .filters {
+    grid-template-columns: minmax(42px, 0.65fr) repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 520px) {
+  .filterLabel {
+    display: none;
+  }
+
+  .shortFilterLabel {
+    display: inline;
+  }
 }
 
 @media (max-width: 420px) {
@@ -328,14 +398,6 @@
 
   .filters button {
     padding-inline: 2px;
-  }
-
-  .filterLabel {
-    display: none;
-  }
-
-  .shortFilterLabel {
-    display: inline;
   }
 }
 

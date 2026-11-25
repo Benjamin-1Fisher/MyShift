@@ -4,9 +4,11 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { Check, ChevronDown, Send, X } from "lucide-react";
 import { useRef, useState } from "react";
 import type { Data } from "@/lib/domain";
-import type {
-  PublicationReview as Review,
-  ScheduleChange,
+import {
+  publicationChangeKind,
+  publicationChangeLabels,
+  type PublicationReview as Review,
+  type ScheduleChange,
 } from "@/lib/weekly-schedule";
 import { shiftClock } from "./shift-card";
 import styles from "./publication-review.module.css";
@@ -17,23 +19,6 @@ const date = new Intl.DateTimeFormat("he-IL", {
   day: "numeric",
   month: "numeric",
 });
-const labels = {
-  added: "משמרת חדשה",
-  filled: "מילוי משמרת פנויה",
-  changed: "שינוי פרטי משמרת",
-  replaced: "החלפת עובד",
-  unassigned: "פינוי שיבוץ",
-  removed: "הסרת משמרת",
-};
-
-function changeKind({ before, after }: ScheduleChange): keyof typeof labels {
-  if (!before) return "added";
-  if (!after) return "removed";
-  if (!before.employee_id && after.employee_id) return "filled";
-  if (before.employee_id && !after.employee_id) return "unassigned";
-  if (before.employee_id !== after.employee_id) return "replaced";
-  return "changed";
-}
 
 export default function PublicationReview({
   data,
@@ -74,7 +59,7 @@ export default function PublicationReview({
   function renderChange(change: ScheduleChange) {
     const { before, after } = change;
     const shift = after || before!;
-    const kind = changeKind(change);
+    const kind = publicationChangeKind(change);
     const details = (entry: typeof shift) => (
       <>
         {date.format(new Date(entry.starts_at))} ·{" "}
@@ -94,7 +79,7 @@ export default function PublicationReview({
         before.role_id !== after.role_id);
     return (
       <li key={shift.id} className={styles.change} data-kind={kind}>
-        <span className={styles.tag}>{labels[kind]}</span>
+        <span className={styles.tag}>{publicationChangeLabels[kind]}</span>
         <strong>
           {before && after && before.employee_id !== after.employee_id ? (
             <>

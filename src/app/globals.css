@@ -1210,6 +1210,29 @@ button:disabled {
   white-space: nowrap;
   padding-inline: 10px;
 }
+.demo-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.demo-banner .demo-reset {
+  gap: 4px;
+  padding-inline: 6px;
+  background: transparent;
+}
+.demo-banner .demo-reset:hover {
+  background: #e5dcef;
+}
+.demo-reset-dialog {
+  width: min(420px, calc(100vw - 24px));
+  padding: 22px;
+}
+.demo-reset-dialog p {
+  margin-block: 8px 16px;
+}
+.demo-reset-actions {
+  justify-content: flex-end;
+}
 .demo-view-label {
   display: flex;
   gap: 8px;
@@ -2644,7 +2667,9 @@ summary {
   background: white;
 }
 
-.app .workspace-planner > .workspace-week {
+.app .workspace-planner > .workspace-week:first-child {
+  display: flex;
+  align-items: center;
   gap: 6px;
   margin: 0;
   flex-wrap: nowrap;
@@ -2667,6 +2692,7 @@ summary {
   font-variant-numeric: tabular-nums;
   font-size: clamp(0.875rem, 3vw, 1.0625rem);
   line-height: 1.2;
+  white-space: nowrap;
 }
 
 .workspace-week-range button {
@@ -2686,6 +2712,28 @@ summary {
   min-height: 44px;
   color: #5945a8;
   font-weight: 700;
+  white-space: nowrap;
+}
+
+@media (max-width: 380px) {
+  .app .workspace-planner > .workspace-week:first-child {
+    gap: 4px;
+  }
+
+  .workspace-week-range {
+    grid-template-columns: 34px minmax(0, 1fr) 34px;
+    padding-inline: 1px;
+  }
+
+  .workspace-week-range strong {
+    font-size: 0.8125rem;
+    letter-spacing: -0.02em;
+  }
+
+  .workspace-this-week {
+    padding-inline: 7px;
+    font-size: 0.875rem;
+  }
 }
 
 .workspace-plan-buttons > button,

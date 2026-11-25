@@ -58,6 +58,28 @@ export type ScheduleChange = {
   before: Assignment | null;
   after: Assignment | null;
 };
+export const publicationChangeLabels = {
+  added: "משמרת חדשה",
+  filled: "מילוי משמרת פנויה",
+  changed: "שינוי פרטי משמרת",
+  replaced: "החלפת עובד",
+  unassigned: "פינוי שיבוץ",
+  removed: "הסרת משמרת",
+} as const;
+export type PublicationChangeKind = keyof typeof publicationChangeLabels;
+
+export function publicationChangeKind({
+  before,
+  after,
+}: ScheduleChange): PublicationChangeKind {
+  if (!before) return "added";
+  if (!after) return "removed";
+  if (!before.employee_id && after.employee_id) return "filled";
+  if (before.employee_id && !after.employee_id) return "unassigned";
+  if (before.employee_id !== after.employee_id) return "replaced";
+  return "changed";
+}
+
 export type WeeklyPlanResult = z.infer<typeof draftTarget> & {
   changes: ScheduleChange[];
 };

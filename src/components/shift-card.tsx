@@ -1,6 +1,7 @@
-import type { CSSProperties, ReactNode } from "react";
-import { Pencil, UserRoundPlus } from "lucide-react";
+import { useId, type CSSProperties, type ReactNode } from "react";
+import { Pencil, TriangleAlert, UserRoundPlus } from "lucide-react";
 import { localDate, type Assignment } from "@/lib/domain";
+import type { PublicationChangeKind } from "@/lib/weekly-schedule";
 import styles from "./shift-card.module.css";
 
 const clock = new Intl.DateTimeFormat("en-GB", {
@@ -19,6 +20,8 @@ export default function ShiftCard({
   roleName,
   color,
   conflict,
+  conflictReason,
+  publicationChange,
   compact,
   onEdit,
 }: {
@@ -28,10 +31,19 @@ export default function ShiftCard({
   roleName?: string;
   color?: string;
   conflict?: boolean;
+  conflictReason?: string;
+  publicationChange?: {
+    kind: PublicationChangeKind;
+    label: string;
+    detail?: string;
+  };
   compact?: boolean;
   onEdit?: () => void;
 }) {
+  const statusId = useId();
   const isOpen = !shift.employee_id;
+  const hasIssue = Boolean(conflict || conflictReason);
+  const hasStatus = hasIssue || Boolean(publicationChange);
   const name = isOpen ? "משמרת פנויה" : employeeName || "עובד משובץ";
   const start = shiftClock(shift.starts_at);
   const end = shiftClock(shift.ends_at);
@@ -51,7 +63,29 @@ export default function ShiftCard({
           {siteName}
           {roleName && ` · ${roleName}`}
         </small>
-        {conflict && <span className={styles.conflict}>שיבוץ לבדיקה</span>}
+        {hasStatus && (
+          <span className={styles.statuses} id={statusId}>
+            {hasIssue && (
+              <span className={styles.issue}>
+                <TriangleAlert size={12} aria-hidden />
+                {conflictReason || "שיבוץ לבדיקה"}
+              </span>
+            )}
+            {publicationChange && (
+              <span
+                className={styles.change}
+                data-kind={publicationChange.kind}
+              >
+                <span>{publicationChange.label}</span>
+                {publicationChange.detail && (
+                  <span className={styles.changeDetail}>
+                    {publicationChange.detail}
+                  </span>
+                )}
+              </span>
+            )}
+          </span>
+        )}
       </span>
       {onEdit && (
         <span className={styles.action}>
@@ -68,7 +102,7 @@ export default function ShiftCard({
     compact ? styles.compact : styles.standard,
     isOpen && (compact ? "org-shift-open" : "open"),
     isOpen && styles.open,
-    conflict && styles.flagged,
+    hasIssue && styles.flagged,
   ]
     .filter(Boolean)
     .join(" ");
@@ -80,6 +114,7 @@ export default function ShiftCard({
       type="button"
       className={`${styles.row} ${styles.interactive} ${compact ? "" : "shift-main"}`}
       aria-label={`${isOpen ? "שיבוץ" : "עריכה"} ${start} ${name}, ${siteName}`}
+      aria-describedby={hasStatus ? statusId : undefined}
       onClick={onEdit}
     >
       {content}
@@ -89,11 +124,19 @@ export default function ShiftCard({
   );
 
   return compact ? (
-    <li className={className} style={style}>
+    <li
+      className={className}
+      style={style}
+      data-publication-change={publicationChange?.kind}
+    >
       {row}
     </li>
   ) : (
-    <article className={className} style={style}>
+    <article
+      className={className}
+      style={style}
+      data-publication-change={publicationChange?.kind}
+    >
       {row}
     </article>
   );

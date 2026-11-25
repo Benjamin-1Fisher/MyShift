@@ -746,3 +746,42 @@ test("stale shift edits stay open and can reload the latest assignment", async (
   await expect(form).toBeHidden();
   await expect(card).toContainText("משמרת פנויה");
 });
+
+test("weekly board explains active filters and marks days with staffing issues", async ({ page }) => {
+  await page.clock.setFixedTime(new Date("2026-11-22T09:00:00Z"));
+  await page.setViewportSize({ width: 320, height: 768 });
+  await page.goto("/demo");
+  const roster = board(page);
+  await expect(departmentScheduleButton(roster, "אחמ״שים")).toBeVisible();
+  await page.evaluate(() => {
+    const key = "myshift.demo.v1";
+    const saved = JSON.parse(localStorage.getItem(key)!);
+    const version = saved.data.schedule_versions.find(
+      (row: { status: string }) => row.status === "draft",
+    );
+    const shift = saved.data.shift_assignments.find(
+      (row: { version_id: string; employee_id: string | null }) =>
+        row.version_id === version.id && row.employee_id,
+    );
+    saved.data.availability.push({
+      id: crypto.randomUUID(),
+      employee_id: shift.employee_id,
+      kind: "unavailable",
+      starts_at: shift.starts_at,
+      ends_at: shift.ends_at,
+    });
+    localStorage.setItem(key, JSON.stringify(saved));
+  });
+  await page.reload();
+  const days = roster.getByRole("group", exact("בחירת יום"));
+  await expect(days.getByRole("button", { name: /^ראשון/ })).toHaveAccessibleDescription(/שיבוץ אחד לבדיקה/);
+  const filters = roster.getByRole("group", exact("סינון משמרות שבועי"));
+  await filters.getByRole("button", { name: /שיבוצים לבדיקה/ }).click();
+  await expect(roster.getByRole("status")).toContainText("משמרות עם בעיית שיבוץ בלבד");
+  await expect(roster.locator(".org-mobile").getByText("העובד אינו זמין בשעות המשמרת", { exact: true })).toBeVisible();
+  await expect(roster.locator(".org-mobile .org-shift")).toHaveCount(1);
+  await filters.getByRole("button", exact("הכול")).click();
+  await expect(roster.getByRole("status")).toHaveCount(0);
+  await expect(roster.locator(".org-mobile .org-shift")).not.toHaveCount(1);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});

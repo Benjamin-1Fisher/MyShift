@@ -35,9 +35,18 @@ export function canAssign(
   employeeId: string,
   all = data.shift_assignments,
 ) {
+  return !assignmentIssue(data, shift, employeeId, all);
+}
+
+export function assignmentIssue(
+  data: Data,
+  shift: Assignment,
+  employeeId: string,
+  all = data.shift_assignments,
+) {
   if (!data.employees.some((e) => e.id === employeeId && e.active))
-    return false;
-  if (!isWeeklyAvailable(data, shift, employeeId)) return false;
+    return "העובד אינו פעיל";
+  if (!isWeeklyAvailable(data, shift, employeeId)) return "מחוץ לזמינות הקבועה";
   if (
     !data.employee_departments.some(
       (m) =>
@@ -46,7 +55,7 @@ export function canAssign(
         m.role_id === shift.role_id,
     )
   )
-    return false;
+    return "חסרה הכשרה לתפקיד";
   const windows = availabilityWindows(data, employeeId, shift.starts_at);
   if (
     windows.some(
@@ -54,7 +63,7 @@ export function canAssign(
         w.kind !== "available" && overlaps(shift, w as unknown as Assignment),
     )
   )
-    return false;
+    return "העובד אינו זמין בשעות המשמרת";
   const allowed = windows.filter((w) => w.kind === "available");
   if (
     allowed.length &&
@@ -64,9 +73,9 @@ export function canAssign(
         Date.parse(String(w.ends_at)) >= Date.parse(shift.ends_at),
     )
   )
-    return false;
+    return "מחוץ לשעות הזמינות";
   const rest = Number(data.settings[0]?.min_rest_hours ?? 0);
-  return !all.some(
+  const other = all.find(
     (other) =>
       other.id !== shift.id &&
       other.employee_id === employeeId &&
@@ -81,6 +90,8 @@ export function canAssign(
           3600000 <
           rest),
   );
+  if (!other) return null;
+  return overlaps(shift, other) ? "חפיפה עם משמרת אחרת" : "זמן מנוחה קצר מהמותר";
 }
 
 // Deterministic staffing rules, independent of AI. Existing assignments are never replaced.

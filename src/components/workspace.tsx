@@ -7,6 +7,8 @@ import OrganizationWeek, { type BoardView } from "./organization-week";
 import DepartmentSelect from "./department-select";
 import ShiftCard from "./shift-card";
 import DemoTeamDesk from "./demo-team-desk";
+import DemoReset from "./demo-reset";
+import { DEMO_KEY, demoResetToken } from "@/lib/demo-storage";
 import ScheduleSettings from "./schedule-settings";
 import PublicationReview from "./publication-review";
 import type {
@@ -336,13 +338,13 @@ export default function Workspace({
   const initialViewRead = useRef(false);
   const [demoEmployee, setDemoEmployee] = useState("");
   const [demoReady, setDemoReady] = useState(false);
-  const post: typeof serverPost = async (url, body) => {
+  const post: typeof serverPost = useCallback(async (url, body) => {
     if (demo) {
       const { demoCommand } = await import("@/lib/demo");
       return demoCommand(url, body);
     }
     return serverPost(url, body);
-  };
+  }, [demo]);
   const [client] = useState(() =>
     configured && !demo
       ? createBrowserClient(
@@ -377,6 +379,10 @@ export default function Workspace({
   } | null>(null);
   const publicationRequest = useRef(0);
   const publicationTrigger = useRef<HTMLElement | null>(null);
+  const [boardPublication, setBoardPublication] = useState<{
+    key: string;
+    rows: Review[];
+  } | null>(null);
   const [boardView, setBoardView] = useState<BoardView>(boardDefault);
   useEffect(() => {
     if (!menu) return;
@@ -480,7 +486,13 @@ export default function Workspace({
       };
       refresh();
       const sync = (event: StorageEvent) => {
-        if (event.key === "myshift.demo.v1") refresh();
+        if (event.key !== DEMO_KEY) return;
+        const token = demoResetToken(event.newValue);
+        if (token && token !== demoResetToken(event.oldValue)) {
+          window.location.replace("/demo");
+          return;
+        }
+        refresh();
       };
       window.addEventListener("storage", sync);
       return () => window.removeEventListener("storage", sync);
@@ -564,6 +576,49 @@ export default function Workspace({
                 ),
             ))),
   );
+  const boardDrafts =
+    page === "organization" && canEdit
+      ? data.schedule_versions.filter(
+          (version) =>
+            version.week_start === week &&
+            version.status === "draft" &&
+            departments.some(
+              (department) => department.id === version.department_id,
+            ),
+        )
+      : [];
+  const boardPublicationKey = boardDrafts.length
+    ? JSON.stringify([
+        userId,
+        week,
+        boardDrafts.map((version) => [version.id, version.revision]),
+      ])
+    : "";
+  useEffect(() => {
+    if (!boardPublicationKey) return;
+    let current = true;
+    void post("/api/change", { action: "review_weekly_publication", week })
+      .then((rows: Review[]) => {
+        if (current) setBoardPublication({ key: boardPublicationKey, rows });
+      })
+      .catch(() => {
+        // The board can still show the current shifts when publication review is unavailable.
+        if (current) setBoardPublication(null);
+      });
+    return () => {
+      current = false;
+    };
+  }, [boardPublicationKey, post, week]);
+  const publicationReviews =
+    boardPublication?.key === boardPublicationKey
+      ? boardPublication.rows.filter((review) =>
+          boardDrafts.some(
+            (version) =>
+              version.id === review.version_id &&
+              Number(version.revision) === review.revision,
+          ),
+        )
+      : [];
   const departmentId = departments.some((d) => d.id === filter)
     ? filter
     : departments[0]?.id || "";
@@ -1380,6 +1435,7 @@ export default function Workspace({
                   טעינת ההדגמה מחדש
                 </a>
               </p>
+              {error && <DemoReset />}
               <noscript>
                 <p>הצגת הלוח דורשת JavaScript.</p>
               </noscript>
@@ -1450,9 +1506,12 @@ export default function Workspace({
             ))}
         </select>
       </label>
-      <Link className="button" href="/app">
-        למערכת הארגונית
-      </Link>
+      <div className="demo-banner-actions">
+        <DemoReset />
+        <Link className="button" href="/app">
+          למערכת הארגונית
+        </Link>
+      </div>
     </div>
   );
   const sidebarBrand = (
@@ -1826,6 +1885,7 @@ export default function Workspace({
             <OrganizationWeek
               demo={demo}
               data={data}
+              publicationReviews={publicationReviews}
               departments={departments}
               week={week}
               view={boardView}

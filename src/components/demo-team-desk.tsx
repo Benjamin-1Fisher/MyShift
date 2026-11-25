@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { Cake, FileText, Send } from "lucide-react";
 import { addDays, localDate, type Row } from "@/lib/domain";
+import { DEMO_RECEIPTS_KEY } from "@/lib/demo-storage";
 
-const key = "myshift.synthetic-team.v1";
 const people = [
   ["000000000020", "11-25"],
   ["000000000021", "11-28"],
@@ -36,7 +36,7 @@ function validReceipt(value: unknown): value is Receipt {
 }
 function loadReceipts(): Receipt[] {
   try {
-    const saved: unknown = JSON.parse(localStorage.getItem(key) || "[]");
+    const saved: unknown = JSON.parse(localStorage.getItem(DEMO_RECEIPTS_KEY) || "[]");
     return Array.isArray(saved) ? saved.filter(validReceipt) : [];
   } catch {
     return [];
@@ -105,7 +105,7 @@ export default function DemoTeamDesk({
       return;
     }
     try {
-      localStorage.setItem(key, JSON.stringify(next));
+      localStorage.setItem(DEMO_RECEIPTS_KEY, JSON.stringify(next));
       setReceipts(next);
       setStatus(
         batch
