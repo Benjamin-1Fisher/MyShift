@@ -32,6 +32,11 @@ test("landing and demo fit phone and navigation works", async ({ page }) => {
   const view = controls.getByRole("combobox", { name: "תצוגת הדגמה" });
   const organization = controls.getByRole("link", { name: "למערכת הארגונית" });
   await expect(view).toBeVisible();
+  await expect(controls.getByText("דמו", { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("main").getByRole("region", { name: "מצב הדגמה" }),
+  ).toHaveCount(0);
+  const topbar = page.locator(".topbar");
   await expect(organization).toHaveAttribute("href", "/app");
   await expect(controls).not.toContainText("נתונים לדוגמה");
   await expect(controls).not.toContainText("השינויים נשמרים");
@@ -40,6 +45,9 @@ test("landing and demo fit phone and navigation works", async ({ page }) => {
     const viewBox = (await view.boundingBox())!;
     const linkBox = (await organization.boundingBox())!;
     expect(Math.abs(viewBox.y - linkBox.y)).toBeLessThan(2);
+    expect(viewBox.y + viewBox.height).toBeLessThan(
+      (await topbar.boundingBox())!.y,
+    );
     expect(viewBox.x + viewBox.width).toBeLessThanOrEqual(width);
     expect(linkBox.x).toBeGreaterThanOrEqual(0);
   }

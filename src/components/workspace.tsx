@@ -1244,7 +1244,41 @@ export default function Workspace({
         </section>
       </main>
     );
-  return (
+  const demoControls = demo && demoReady && (
+    <div className="demo-banner" role="region" aria-label="מצב הדגמה">
+      <label className="demo-view-label">
+        <span className="demo-mode-label">דמו</span>
+        <select
+          aria-label="תצוגת הדגמה"
+          value={demoEmployee}
+          onChange={(e) => {
+            setDemoEmployee(e.target.value);
+            if (page === "team-desk") setPage("team-desk");
+            else if (e.target.value) setPage("schedule");
+            else openOrganization();
+            setFilter("");
+            setEmployeeFilter("");
+            setSiteFilter("");
+            setScheduleFocus("all");
+            setView("week");
+          }}
+        >
+          <option value="">מנהל</option>
+          {data.employees
+            .filter((e) => e.active)
+            .map((e) => (
+              <option key={e.id} value={e.id}>
+                עובד · {String(e.name)}
+              </option>
+            ))}
+        </select>
+      </label>
+      <Link className="button" href="/app">
+        למערכת הארגונית
+      </Link>
+    </div>
+  );
+  const workspace = (
     <div className={page === "schedule" ? "app planning" : "app"}>
       <aside className={menu ? "sidebar visible" : "sidebar"}>
         <Link className="brand" href="/">
@@ -1342,14 +1376,12 @@ export default function Workspace({
             <strong className="workspace-mobile-brand">MyShift</strong>
           </div>
           <div className="row">
-            <span className="connection">
-              <i className="dot" />
-              {demo
-                ? "שמירה מקומית בדפדפן"
-                : userId
-                  ? "רענון אוטומטי · כל 10 שניות"
-                  : "סביבת עבודה חדשה"}
-            </span>
+            {!demo && (
+              <span className="connection">
+                <i className="dot" />
+                {userId ? "רענון אוטומטי · כל 10 שניות" : "סביבת עבודה חדשה"}
+              </span>
+            )}
             <button
               aria-label={
                 unreadNotices ? `התראות, ${unreadNotices} חדשות` : "התראות"
@@ -1365,40 +1397,6 @@ export default function Workspace({
             </button>
           </div>
         </header>
-        {demo && demoReady && (
-          <div className="demo-banner" role="region" aria-label="מצב הדגמה">
-            <label className="demo-view-label">
-              תצוגה
-              <select
-                aria-label="תצוגת הדגמה"
-                value={demoEmployee}
-                onChange={(e) => {
-                  setDemoEmployee(e.target.value);
-                  if (page === "team-desk") setPage("team-desk");
-                  else if (e.target.value) setPage("schedule");
-                  else openOrganization();
-                  setFilter("");
-                  setEmployeeFilter("");
-                  setSiteFilter("");
-                  setScheduleFocus("all");
-                  setView("week");
-                }}
-              >
-                <option value="">מנהל</option>
-                {data.employees
-                  .filter((e) => e.active)
-                  .map((e) => (
-                    <option key={e.id} value={e.id}>
-                      עובד · {String(e.name)}
-                    </option>
-                  ))}
-              </select>
-            </label>
-            <Link className="button" href="/app">
-              למערכת הארגונית
-            </Link>
-          </div>
-        )}
         <div className="content">
           <div className="workspace-heading">
             {canEdit && page === "schedule" && (
@@ -3221,6 +3219,12 @@ export default function Workspace({
         </Modal>
       )}
     </div>
+  );
+  return (
+    <>
+      {demoControls}
+      {workspace}
+    </>
   );
 }
 function Empty({ text }: { text: string }) {

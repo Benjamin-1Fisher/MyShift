@@ -7,6 +7,7 @@
   --line: #e9edf3;
   --purple: #7360d6;
   --nav: #19253d;
+  --demo-bar-height: 44px;
 }
 * {
   box-sizing: border-box;
@@ -1174,18 +1175,31 @@ button:disabled {
   cursor: not-allowed;
 }
 .demo-banner {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 21;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 4px clamp(10px, 2vw, 24px);
-  background: #fff;
-  border-bottom: 1px solid var(--line);
+  height: var(--demo-bar-height);
+  padding-inline: clamp(10px, 2vw, 24px);
+  background: #f1edf9;
+  border-bottom: 1px solid #d9cdeb;
+}
+.demo-banner + .app {
+  min-height: calc(100vh - var(--demo-bar-height));
+}
+.demo-banner + .app .sidebar {
+  inset-block-start: var(--demo-bar-height);
 }
 .demo-banner .button,
 .demo-banner select {
-  min-height: 40px;
-  padding-block: 6px;
+  min-height: 36px;
+  padding-block: 4px;
+  border-color: #d9cdeb;
+  background: #faf8fd;
+  color: #45365f;
   font-size: 0.9375rem;
 }
 .demo-banner .button {
@@ -1195,11 +1209,18 @@ button:disabled {
 }
 .demo-view-label {
   display: flex;
-  gap: 6px;
+  gap: 8px;
   align-items: center;
   min-width: 0;
-  font-size: 0.9375rem;
-  font-weight: bold;
+}
+.demo-mode-label {
+  flex: none;
+  padding-inline: 8px;
+  border-radius: 5px;
+  background: #ded3ee;
+  color: #493367;
+  font-size: 0.875rem;
+  font-weight: 700;
 }
 .demo-view-label select {
   width: 160px;
