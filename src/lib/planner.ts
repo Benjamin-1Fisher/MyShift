@@ -8,8 +8,26 @@ import {
   type Assignment,
   type Data,
   type Operation,
+  type Row,
 } from "./domain";
 import { isWeeklyAvailable } from "./weekly-availability";
+
+type PlannedOperation = Assignment & { kind: "create" | "update" };
+
+export type WeeklyPlanTarget = {
+  week: string;
+  departmentId: string;
+  versionId?: string;
+  revision: number;
+  status: "draft" | "published" | null;
+  operations: PlannedOperation[];
+};
+
+export type WeeklyPlanGroup = {
+  department: Row;
+  target: WeeklyPlanTarget;
+  unavailable?: { label: string; detail: string };
+};
 
 export function canAssign(
   data: Data,
@@ -197,7 +215,29 @@ export function planWeek(
     }
   }
   const working = data.shift_assignments.concat(created).map((a) => ({ ...a }));
-  const operations: (Assignment & { kind: "create" | "update" })[] = [];
+  const workingById = new Map(working.map((shift) => [shift.id, shift]));
+  const operations: PlannedOperation[] = [];
+  const createdIds = new Set(created.map((shift) => shift.id));
+  const weeklyHours = new Map<string, number>();
+  if (mode !== "open") {
+    const endOfWeek = addDays(week, 6);
+    const archivedVersions = new Set(
+      data.schedule_versions
+        .filter((version) => version.status === "archived")
+        .map((version) => version.id),
+    );
+    for (const shift of working) {
+      if (!shift.employee_id || archivedVersions.has(shift.version_id))
+        continue;
+      const day = localDate(shift.starts_at);
+      if (day >= week && day <= endOfWeek) {
+        weeklyHours.set(
+          shift.employee_id,
+          (weeklyHours.get(shift.employee_id) ?? 0) + duration(shift),
+        );
+      }
+    }
+  }
   const targets = (
     mode === "open"
       ? created
@@ -205,33 +245,33 @@ export function planWeek(
   ).sort(
     (a, b) =>
       Date.parse(a.starts_at) - Date.parse(b.starts_at) ||
-      a.id.localeCompare(b.id),
+      Number(createdIds.has(a.id)) - Number(createdIds.has(b.id)) ||
+      Date.parse(a.ends_at) - Date.parse(b.ends_at) ||
+      a.site_id.localeCompare(b.site_id) ||
+      a.role_id.localeCompare(b.role_id) ||
+      // Matching generated shifts retain their insertion order.
+      (createdIds.has(a.id) ? 0 : a.id.localeCompare(b.id)),
   );
   for (const shift of targets) {
-    const current = working.find((a) => a.id === shift.id)!;
+    const current = workingById.get(shift.id)!;
     if (mode !== "open") {
-      const hours = (id: string) =>
-        working
-          .filter(
-            (a) =>
-              a.employee_id === id &&
-              localDate(a.starts_at) >= week &&
-              localDate(a.starts_at) <= addDays(week, 6) &&
-              !data.schedule_versions.some(
-                (v) => v.id === a.version_id && v.status === "archived",
-              ),
-          )
-          .reduce((n, a) => n + duration(a), 0);
       current.employee_id =
         data.employees
           .filter((e) => canAssign(data, current, e.id, working))
           .sort(
             (a, b) =>
-              hours(a.id) - hours(b.id) ||
-              String(a.name).localeCompare(String(b.name), "he"),
+              (weeklyHours.get(a.id) ?? 0) - (weeklyHours.get(b.id) ?? 0) ||
+              String(a.name).localeCompare(String(b.name), "he") ||
+              a.id.localeCompare(b.id),
           )[0]?.id || null;
+      if (current.employee_id) {
+        weeklyHours.set(
+          current.employee_id,
+          (weeklyHours.get(current.employee_id) ?? 0) + duration(current),
+        );
+      }
     }
-    if (created.some((a) => a.id === shift.id))
+    if (createdIds.has(shift.id))
       operations.push({ ...current, kind: "create" });
     else if (current.employee_id)
       operations.push({ ...current, kind: "update" });
@@ -239,6 +279,115 @@ export function planWeek(
   if (operations.length > 100)
     throw new Error("עד 100 שינויים בפעולה. השתמשו במסנן או פצלו את השבוע");
   return operations;
+}
+
+export function planDepartments(
+  data: Data,
+  week: string,
+  departments: Row[],
+): WeeklyPlanGroup[] {
+  const working = new Map(
+    data.shift_assignments.map((shift) => [shift.id, shift]),
+  );
+  const ordered = departments
+    .filter((department) => department.active !== false)
+    .sort((a, b) => a.id.localeCompare(b.id));
+
+  return ordered.map((department) => {
+    const departmentId = department.id;
+    const versions = data.schedule_versions.filter(
+      (version) =>
+        version.department_id === departmentId && version.week_start === week,
+    );
+    const active = versions.find(
+      (version) => version.status === "draft" || version.status === "published",
+    );
+    const status =
+      active?.status === "published" ? "published" : active ? "draft" : null;
+    const target: WeeklyPlanTarget = {
+      week,
+      departmentId,
+      versionId: active?.id,
+      revision: Number(active?.revision ?? 0),
+      status,
+      operations: [],
+    };
+    if (!active && versions.some((version) => version.status === "archived")) {
+      return {
+        department,
+        target,
+        unavailable: {
+          label: "בסל המחזור",
+          detail: "אפשר לשחזר את הסידור מעמוד המחלקה.",
+        },
+      };
+    }
+
+    const assignments = [...working.values()];
+    const configured =
+      data.coverage_requirements.some(
+        (row) => row.department_id === departmentId,
+      ) ||
+      data.shift_templates.some(
+        (row) =>
+          row.department_id === departmentId &&
+          row.confirmed &&
+          row.start_time &&
+          row.end_time,
+      );
+    const open = assignments.some(
+      (shift) => shift.version_id === active?.id && !shift.employee_id,
+    );
+    if (!configured && !open) {
+      return {
+        department,
+        target,
+        unavailable: {
+          label: "שעות טרם הוגדרו",
+          detail: "יש להגדיר דרישות איוש או לאמת שעות משמרת בהגדרות המחלקה.",
+        },
+      };
+    }
+    try {
+      target.operations = planWeek(
+        {
+          ...data,
+          shift_assignments: assignments,
+          schedule_versions:
+            status === "published"
+              ? data.schedule_versions.map((version) =>
+                  version.id === active?.id
+                    ? { ...version, status: "draft" }
+                    : version,
+                )
+              : data.schedule_versions,
+        },
+        week,
+        configured ? "generate" : "fill",
+        departmentId,
+      );
+    } catch (error) {
+      return {
+        department,
+        target,
+        unavailable: { label: "דורש בדיקה", detail: (error as Error).message },
+      };
+    }
+    for (const operation of target.operations)
+      working.set(operation.id, operation);
+    const unavailable = target.operations.length
+      ? undefined
+      : open
+        ? {
+            label: "משמרות נותרו פנויות",
+            detail: "לא נמצאו עובדים זמינים ומתאימים למשמרות הפנויות.",
+          }
+        : {
+            label: "הסידור מלא",
+            detail: "כל המשמרות הנדרשות כבר משובצות.",
+          };
+    return { department, target, unavailable };
+  });
 }
 
 export function copyPreviousWeek(

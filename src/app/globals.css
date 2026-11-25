@@ -2650,7 +2650,44 @@ summary {
   flex-wrap: nowrap;
 }
 
-.workspace-week button,
+.workspace-week-range {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) 42px;
+  flex: 1;
+  align-items: center;
+  min-width: 0;
+  padding: 2px;
+  border: 1px solid #e6e1f4;
+  border-radius: 11px;
+  background: #f8f6fd;
+}
+
+.workspace-week-range strong {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-size: clamp(0.875rem, 3vw, 1.0625rem);
+  line-height: 1.2;
+}
+
+.workspace-week-range button {
+  min-height: 44px;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: #514095;
+}
+
+.workspace-week-range button:hover {
+  background: #ebe5fa;
+}
+
+.workspace-this-week {
+  flex: none;
+  min-height: 44px;
+  color: #5945a8;
+  font-weight: 700;
+}
+
 .workspace-plan-buttons > button,
 .workspace-more > summary {
   min-height: 40px;

@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { ChevronLeft, ChevronRight, Printer } from "lucide-react";
+import { ChevronLeft, ChevronRight, Printer, Send } from "lucide-react";
 import {
   addDays,
   localDate,
@@ -48,6 +48,7 @@ export default function OrganizationWeek({
   onDepartment,
   onOpenShift,
   onApplyPlan,
+  onReviewPublication,
   demo,
 }: {
   data: Data;
@@ -59,6 +60,7 @@ export default function OrganizationWeek({
   onDepartment: (id: string) => void;
   onOpenShift: (shift: Assignment, isDraft: boolean) => void;
   onApplyPlan: ApplyWeeklyPlan;
+  onReviewPublication: () => void;
   demo: boolean;
 }) {
   const board = useMemo(
@@ -66,6 +68,7 @@ export default function OrganizationWeek({
     [data, departments, week],
   );
   const { dates } = board;
+  const draftCount = board.rows.filter((row) => row.status === "draft").length;
   const today = localDate(new Date().toISOString());
   const currentWeek = sunday();
   const day = dates.includes(view.day)
@@ -203,14 +206,18 @@ export default function OrganizationWeek({
   }
 
   function departmentButton(department: Row) {
+    const name = String(department.name);
     return (
       <button
         type="button"
         className="org-department-button"
         onClick={() => onDepartment(department.id)}
-        title="פתיחת סידור המחלקה"
+        aria-label={`לסידור המחלקה · ${name}`}
       >
-        {String(department.name)} <ChevronLeft aria-hidden size={15} />
+        <span>{name}</span>
+        <span className={styles.departmentAction}>
+          לסידור המחלקה <ChevronLeft aria-hidden size={14} />
+        </span>
       </button>
     );
   }
@@ -331,7 +338,6 @@ export default function OrganizationWeek({
               <WeeklyPlan
                 data={data}
                 departments={departments}
-                departmentId={activeDepartment}
                 week={week}
                 dateRange={dateRange}
                 names={names}
@@ -366,6 +372,14 @@ export default function OrganizationWeek({
                 </button>
               ))}
             </div>
+            {draftCount > 0 && (
+              <button type="button" className={styles.publication}
+                onClick={onReviewPublication}>
+                <Send size={16} aria-hidden />
+                סקירה ופרסום
+                <span>{draftCount} טיוטות</span>
+              </button>
+            )}
           </>
         )}
       </header>

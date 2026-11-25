@@ -7,6 +7,7 @@ import {
   openDepartment,
   openMain,
   planning,
+  shiftWorker,
 } from "./workspace-controls";
 test("organization: direct save, undo copied shift, publish, archive and restore", async ({
   page,
@@ -42,17 +43,12 @@ test("organization: direct save, undo copied shift, publish, archive and restore
   // No draft exists: saving first shift creates the draft and previews atomically scoped changes.
   await page.getByRole("button", { name: "הוספת משמרת", exact: true }).click();
   const shift = page.getByRole("dialog");
-  const shiftDepartment = shift.getByRole("combobox", exact("מחלקה"));
-  await expect(shiftDepartment).toBeDisabled();
-  await expect(shiftDepartment.locator("option:checked")).toHaveText("סיירים");
-  await shift
-    .getByRole("combobox", exact("תפקיד"))
-    .selectOption({ label: "סיירים" });
+  await expect(shift.getByText("סיירים · אתר בדיקה פיקטיבי")).toBeVisible();
+  await expect(shift.getByRole("combobox", exact("מחלקה"))).toHaveCount(0);
+  await expect(shift.getByRole("combobox", exact("תפקיד"))).toHaveCount(0);
   await shift.getByLabel("התחלה", { exact: true }).fill("23:00");
   await shift.getByLabel("סיום", { exact: true }).fill("07:00");
-  await shift
-    .getByLabel("עובד במשמרת")
-    .selectOption({ label: "עובד בדיקה פיקטיבי" });
+  await shiftWorker(shift).selectOption({ label: "עובד בדיקה פיקטיבי" });
   await shift.getByRole("button", { name: "שמירה", exact: true }).click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
   await expect(page.locator(".shift")).toHaveCount(1);
@@ -61,7 +57,11 @@ test("organization: direct save, undo copied shift, publish, archive and restore
   await expect(planning(page)).toBeVisible();
   await expect(page.locator(".shift")).toHaveCount(1);
   await page.locator(".shift-main").click();
-  await page.getByRole("button", { name: "שכפול משמרת", exact: true }).click();
+  await page.getByRole("button", exact("יצירת משמרת דומה")).click();
+  await expect(shift).toHaveAccessibleName("יצירת משמרת דומה");
+  await expect(shiftWorker(shift)).toHaveValue("");
+  await expect(shift.getByRole("group", exact("יום בשבוע"))).toBeVisible();
+  await expect(page.locator(".shift")).toHaveCount(1);
   await page.getByRole("button", { name: "שמירה", exact: true }).click();
   await expect(page.locator(".shift")).toHaveCount(2);
   await page

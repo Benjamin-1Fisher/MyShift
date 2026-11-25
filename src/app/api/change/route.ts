@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { operationSchema } from "@/lib/domain";
+import { weeklyScheduleSchema } from "@/lib/weekly-schedule";
 import { session, safeError, sameOrigin } from "@/lib/server";
 const schema = z.discriminatedUnion("action", [
   z.object({
@@ -28,7 +29,24 @@ export async function POST(req: Request) {
   try {
     sameOrigin(req);
     const { client } = await session();
-    const input = schema.parse(await req.json());
+    const body = await req.json();
+    const weekly = weeklyScheduleSchema.safeParse(body);
+    if (weekly.success) {
+      const { action, ...args } = weekly.data;
+      const result = await client.rpc(action, args);
+      if (result.error)
+        return NextResponse.json(
+          {
+            error:
+              result.error.code === "PGRST202"
+                ? "תכנון ופרסום מרוכזים זמינים לאחר עדכון מסד הנתונים."
+                : result.error.message,
+          },
+          { status: 400 },
+        );
+      return NextResponse.json(result.data);
+    }
+    const input = schema.parse(body);
     const result =
       input.action === "archive" || input.action === "restore"
         ? await client.rpc("schedule_recover", {

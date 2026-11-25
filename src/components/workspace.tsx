@@ -8,6 +8,14 @@ import DepartmentSelect from "./department-select";
 import ShiftCard from "./shift-card";
 import DemoTeamDesk from "./demo-team-desk";
 import ScheduleSettings from "./schedule-settings";
+import PublicationReview from "./publication-review";
+import type {
+  PersonalSchedule,
+  PublicationReview as Review,
+  ScheduleChange,
+  UndoWeeklyPlan,
+  WeeklyPlanResult,
+} from "@/lib/weekly-schedule";
 import managementStyles from "./workspace-management.module.css";
 import { buildDepartmentOverview, type ScheduleFocus } from "@/lib/overview";
 import {
@@ -71,8 +79,17 @@ import {
 import * as Dialog from "@radix-ui/react-dialog";
 type Preview = {
   id: string;
-  changes: { before: Assignment | null; after: Assignment | null }[];
+  changes: ScheduleChange[];
 };
+const emptyPersonal: PersonalSchedule = { schedule_versions: [], shift_assignments: [] };
+
+function reverseChanges(changes: ScheduleChange[]): Operation[] {
+  return [...changes].reverse().map(({ before, after }) =>
+    before
+      ? { ...before, kind: after ? "update" : "create" }
+      : { kind: "delete", id: after!.id },
+  );
+}
 type Field = {
   key: string;
   label: string;
@@ -350,6 +367,16 @@ export default function Workspace({
     [view, setView] = useState("week"),
     [search, setSearch] = useState("");
   const [scheduleFocus, setScheduleFocus] = useState<ScheduleFocus>("all");
+  const [personal, setPersonal] = useState<PersonalSchedule>(emptyPersonal);
+  const [publication, setPublication] = useState<{
+    week: string;
+    weekRange: string;
+    departmentId?: string;
+    rows: Review[] | null;
+    error: string;
+  } | null>(null);
+  const publicationRequest = useRef(0);
+  const publicationTrigger = useRef<HTMLElement | null>(null);
   const [boardView, setBoardView] = useState<BoardView>(boardDefault);
   useEffect(() => {
     if (!menu) return;
@@ -368,7 +395,7 @@ export default function Workspace({
   } | null>(null);
   const editorTrigger = useRef<HTMLElement | null>(null);
   const editorBusy = useRef(false);
-  const [lastUndo, setLastUndo] = useState<{
+  const [lastUndo, setLastUndo] = useState<UndoWeeklyPlan | {
     scope: ScheduleScope;
     operations: Operation[];
   } | null>(null);
@@ -406,8 +433,8 @@ export default function Workspace({
       if (linkedWeek) setSelectedWeek(linkedWeek);
     }
     if (demo) {
-      const { loadDemo, DEMO_ADMIN } = await import("@/lib/demo");
-      const saved = loadDemo();
+      const { loadDemoWorkspace, DEMO_ADMIN } = await import("@/lib/demo");
+      const { data: saved, personal } = loadDemoWorkspace();
       if (
         !demoLoaded.current &&
         !linkedWeek &&
@@ -426,6 +453,7 @@ export default function Workspace({
       }
       demoLoaded.current = true;
       setData(saved);
+      setPersonal(personal);
       setUserId(DEMO_ADMIN);
       setDemoReady(true);
       return saved;
@@ -435,11 +463,13 @@ export default function Workspace({
     if (r.status === 401) {
       setUserId("");
       setData(empty);
+      setPersonal(emptyPersonal);
       return;
     }
     const result = await r.json();
     if (!r.ok) throw new Error(result.error);
     setData(result.data);
+    setPersonal(result.personal || emptyPersonal);
     setUserId(result.userId);
     return result.data as Data;
   }, [client, demo]);
@@ -469,18 +499,6 @@ export default function Workspace({
       listener.subscription.unsubscribe();
     };
   }, [client, load, demo]);
-  const displayData = demoEmployee
-    ? {
-        ...data,
-        shift_assignments: data.shift_assignments.filter(
-          (a) =>
-            a.employee_id === demoEmployee &&
-            data.schedule_versions.some(
-              (v) => v.id === a.version_id && v.status === "published",
-            ),
-        ),
-      }
-    : data;
   const profile = demoEmployee
       ? {
           id: demoEmployee,
@@ -553,6 +571,10 @@ export default function Workspace({
     (page === "employees" || page === "settings") && departments.length > 0;
   const personalEmployeeId =
     demoEmployee || data.employees.find((e) => e.user_id === userId)?.id;
+  const displayData = canEdit ? data : {
+    ...personal,
+    shift_assignments: personal.shift_assignments.filter((a) => a.employee_id === personalEmployeeId),
+  };
   const departmentMemberships = data.employee_departments.filter(
     (membership) => membership.department_id === departmentId,
   );
@@ -705,7 +727,7 @@ export default function Workspace({
         Date.parse(String(b.archived_at || b.created_at || "1970-01-01")),
     );
   const archived = archivedSchedules.at(-1);
-  const version = data.schedule_versions.find(
+  const version = displayData.schedule_versions.find(
     (v) =>
       v.week_start === week &&
       v.department_id === departmentId &&
@@ -805,13 +827,12 @@ export default function Workspace({
     operations: Operation[],
     remember = true,
     target: ScheduleScope = scope,
-    observedData = data,
   ) => {
     if (!operations.length) {
       setNotice("הסידור כבר מעודכן. לא נדרשו שינויים.");
       return;
     }
-    const observed = observedData.schedule_versions.find(
+    const observed = data.schedule_versions.find(
       (v) =>
         v.week_start === target.week &&
         v.department_id === target.departmentId &&
@@ -860,14 +881,7 @@ export default function Workspace({
     if (remember && Array.isArray(changes))
       setLastUndo({
         scope: { ...target, versionId: vid, revision: target.revision + 1 },
-        operations: changes
-          .slice()
-          .reverse()
-          .map((c) =>
-            c.before
-              ? { ...c.before, kind: c.after ? "update" : "create" }
-              : { kind: "delete", id: c.after!.id },
-          ) as Operation[],
+        operations: reverseChanges(changes),
       });
     await load();
     setNotice(remember ? "השינויים נשמרו" : "הפעולה האחרונה בוטלה");
@@ -1228,22 +1242,36 @@ export default function Workspace({
     : "";
   const plan = (mode: "generate" | "fill" | "open") =>
     void run(() => commitChanges(planWeek(data, week, mode, departmentId)));
-  const updatePublication = () =>
-    void run(async () => {
-      await post("/api/change", {
-        action: isPublished ? "reopen" : "publish",
-        week,
-        department_id: departmentId,
+  function loadPublication(target: NonNullable<typeof publication>) {
+    const request = ++publicationRequest.current;
+    setPublication({ ...target, rows: null, error: "" });
+    void post("/api/change", { action: "review_weekly_publication", week: target.week })
+      .then((rows: Review[]) => {
+        if (request !== publicationRequest.current) return;
+        setPublication({
+          ...target,
+          rows: rows.filter((row) => !target.departmentId || row.department_id === target.departmentId),
+          error: "",
+        });
+      })
+      .catch((cause: Error) => {
+        if (request === publicationRequest.current)
+          setPublication({ ...target, rows: null, error: cause.message });
       });
-      setLastUndo(null);
-      setNotice(
-        isPublished
-          ? "הסידור פתוח לעריכה"
-          : openCount
-            ? `הסידור פורסם עם ${openCount} משמרות פנויות לשיבוץ`
-            : "הסידור פורסם",
-      );
-    });
+  }
+  function openPublication(targetDepartment?: string) {
+    publicationTrigger.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement : null;
+    loadPublication({ week, weekRange, departmentId: targetDepartment, rows: null, error: "" });
+  }
+  const updatePublication = () =>
+    isPublished
+      ? void run(async () => {
+          await post("/api/change", { action: "reopen", week, department_id: departmentId });
+          setLastUndo(null);
+          setNotice("הטיוטה פתוחה לעריכה. העובדים רואים את הסידור האחרון שפורסם.");
+        })
+      : openPublication(departmentId);
   const primaryAction = isPublished
     ? "reopen"
     : conflicts.length
@@ -1284,9 +1312,13 @@ export default function Workspace({
     !!lastUndo &&
     notice === "השינויים נשמרו" &&
     (page === "organization" || page === "schedule") &&
-    data.schedule_versions.some(
-      (row) => row.id === lastUndo.scope.versionId && row.status === "draft",
-    );
+    ("targets" in lastUndo
+      ? lastUndo.targets.every((target) => data.schedule_versions.some(
+          (row) => row.id === target.version_id && row.status === "draft" && Number(row.revision) === target.revision,
+        ))
+      : data.schedule_versions.some(
+          (row) => row.id === lastUndo.scope.versionId && row.status === "draft",
+        ));
   const [personalClock, setPersonalClock] = useState(() => Date.now());
   useEffect(() => {
     if (canEdit) return;
@@ -1299,10 +1331,7 @@ export default function Workspace({
           .filter(
             (shift) =>
               shift.employee_id === personalEmployeeId &&
-              Date.parse(shift.ends_at) > personalClock &&
-              data.schedule_versions.some(
-                (v) => v.id === shift.version_id && v.status === "published",
-              ),
+              Date.parse(shift.ends_at) > personalClock,
           )
           .sort((a, b) => a.starts_at.localeCompare(b.starts_at))[0]
       : undefined;
@@ -1718,11 +1747,12 @@ export default function Workspace({
                     disabled={busy}
                     onClick={() =>
                       void run(async () => {
-                        await commitChanges(
-                          lastUndo.operations,
-                          false,
-                          lastUndo.scope,
-                        );
+                        if ("targets" in lastUndo) {
+                          await post("/api/change", lastUndo);
+                          setNotice("הפעולה האחרונה בוטלה");
+                        } else {
+                          await commitChanges(lastUndo.operations, false, lastUndo.scope);
+                        }
                         setLastUndo(null);
                       })
                     }
@@ -1803,22 +1833,39 @@ export default function Workspace({
               onWeek={setWeek}
               onDepartment={openDepartmentSchedule}
               onOpenShift={(shift) => openShift(shift)}
-              onApplyPlan={async (operations, target) => {
+              onReviewPublication={() => openPublication()}
+              onApplyPlan={async (targets) => {
                 setError("");
-                const latest = await load();
-                if (!latest) throw new Error("לא ניתן לטעון את הסידור העדכני");
-                if (
-                  !target.versionId &&
-                  latest.schedule_versions.some(
-                    (row) =>
-                      row.week_start === target.week &&
-                      row.department_id === target.departmentId &&
-                      row.status === "archived",
-                  )
-                ) {
-                  throw new Error("הסידור נשמר בסל המחזור. אפשר לשחזר אותו מעמוד המחלקה.");
+                let results: WeeklyPlanResult[];
+                try {
+                  results = await post("/api/change", {
+                    action: "apply_weekly_plan",
+                    week,
+                    targets: targets.map((target) => ({
+                      department_id: target.departmentId,
+                      version_id: target.versionId || null,
+                      status: target.status,
+                      revision: target.revision,
+                      operations: target.operations,
+                    })),
+                  });
+                } catch (cause) {
+                  await load().catch(() => {});
+                  throw cause;
                 }
-                await commitChanges(operations, true, target, latest);
+                setLastUndo({
+                  action: "undo_weekly_plan",
+                  week,
+                  targets: results.map(({ changes, ...target }) => ({
+                    ...target,
+                    operations: reverseChanges(changes),
+                    restore_published: targets.some((item) =>
+                      item.departmentId === target.department_id && item.status === "published",
+                    ),
+                  })),
+                });
+                setNotice("השינויים נשמרו");
+                await load().catch((cause: Error) => setError(cause.message));
               }}
             />
           )}
@@ -1856,23 +1903,32 @@ export default function Workspace({
                 aria-label={canEdit ? "ניהול הסידור" : "בחירת שבוע בסידור שלי"}
               >
                 <div className="workspace-week">
-                  <button
-                    aria-label="שבוע קודם"
-                    onClick={() => setWeek(addDays(week, -7))}
+                  <div
+                    className="workspace-week-range"
+                    role="group"
+                    aria-label="ניווט בין שבועות"
                   >
-                    <ChevronRight size={18} aria-hidden />
-                  </button>
-                  <strong>
-                    <bdi dir="ltr">{weekRange}</bdi>
-                  </strong>
-                  <button
-                    aria-label="שבוע הבא"
-                    onClick={() => setWeek(addDays(week, 7))}
-                  >
-                    <ChevronLeft size={18} aria-hidden />
-                  </button>
+                    <button
+                      type="button"
+                      aria-label="שבוע קודם"
+                      onClick={() => setWeek(addDays(week, -7))}
+                    >
+                      <ChevronRight size={18} aria-hidden />
+                    </button>
+                    <strong aria-live="polite">
+                      <bdi dir="ltr">{weekRange}</bdi>
+                    </strong>
+                    <button
+                      type="button"
+                      aria-label="שבוע הבא"
+                      onClick={() => setWeek(addDays(week, 7))}
+                    >
+                      <ChevronLeft size={18} aria-hidden />
+                    </button>
+                  </div>
                   {week !== sunday() && (
-                    <button onClick={() => setWeek(sunday())}>השבוע</button>
+                    <button type="button" className="workspace-this-week"
+                      onClick={() => setWeek(sunday())}>השבוע</button>
                   )}
                 </div>
                 <div className="workspace-plan-controls">
@@ -2264,7 +2320,7 @@ export default function Workspace({
                           {displayData.shift_assignments
                             .filter(
                               (a) =>
-                                data.schedule_versions.some(
+                                displayData.schedule_versions.some(
                                   (v) =>
                                     v.id === a.version_id &&
                                     (v.status === "published" ||
@@ -2883,6 +2939,35 @@ export default function Workspace({
           </footer>
         </div>
       </main>
+      {publication && (
+        <PublicationReview
+          data={data}
+          rows={publication.rows}
+          weekRange={publication.weekRange}
+          error={publication.error}
+          onReload={() => loadPublication(publication)}
+          onClose={() => {
+            publicationRequest.current++;
+            setPublication(null);
+          }}
+          restoreFocus={() => {
+            if (publicationTrigger.current?.isConnected) publicationTrigger.current.focus();
+            else document.querySelector<HTMLElement>(".org-week button[aria-pressed=true], .workspace-back")?.focus();
+          }}
+          onPublish={async (rows) => {
+            await post("/api/change", {
+              action: "publish_weekly_schedule",
+              week: publication.week,
+              targets: rows.map(({ department_id, version_id, revision }) => ({
+                department_id, version_id, revision,
+              })),
+            });
+            setLastUndo(null);
+            setNotice(rows.length === 1 ? "הסידור פורסם" : `הסידורים פורסמו ב־${rows.length} מחלקות`);
+            await load().catch((cause: Error) => setError(cause.message));
+          }}
+        />
+      )}
       {restorePrompt && (
         <Modal
           title="שחזור סידור קודם"
@@ -2945,9 +3030,11 @@ export default function Workspace({
       {editor && canEdit && (
         <Modal
           title={
-            editor.shift === true || !editor.shift.id
+            editor.shift === true
               ? "הוספת משמרת"
-              : "עריכת משמרת"
+              : editor.shift.id
+                ? "עריכת משמרת"
+                : "יצירת משמרת דומה"
           }
           close={() => {
             if (!editorBusy.current) setEditor(null);
@@ -2995,12 +3082,12 @@ export default function Workspace({
                   : addDays(day, 1);
               setEditor({
                 ...editor,
+                date: next,
                 generation: editor.generation + 1,
                 shift: {
                   ...shift,
                   id: "",
                   employee_id: null,
-                  ...interval(next, time(shift.starts_at), time(shift.ends_at)),
                 },
               });
             }}

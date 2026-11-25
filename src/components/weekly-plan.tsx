@@ -1,28 +1,25 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import { CalendarPlus, ShieldCheck, X } from "lucide-react";
+import { CalendarPlus, ChevronDown, ShieldCheck, X } from "lucide-react";
 import { useRef, useState, type ReactNode } from "react";
-import { localDate, type Data, type Operation, type Row } from "@/lib/domain";
-import { planWeek } from "@/lib/planner";
+import { localDate, type Data, type Row } from "@/lib/domain";
+import {
+  planDepartments,
+  type WeeklyPlanGroup,
+  type WeeklyPlanTarget,
+} from "@/lib/planner";
 import DepartmentSelect from "./department-select";
 import styles from "./weekly-plan.module.css";
 
-type PlanTarget = {
-  week: string;
-  departmentId: string;
-  versionId?: string;
-  revision: number;
-};
-
-export type ApplyWeeklyPlan = (
-  operations: Operation[],
-  target: PlanTarget,
-) => Promise<void>;
-
+export type ApplyWeeklyPlan = (targets: WeeklyPlanTarget[]) => Promise<void>;
+type Operation = WeeklyPlanTarget["operations"][number];
+type Names = Record<"employees" | "sites" | "roles", Map<string, string>>;
 type Plan = {
-  operations: ReturnType<typeof planWeek>;
-  target: PlanTarget;
-  message?: string;
+  id: number;
+  groups: WeeklyPlanGroup[];
+  departmentId: string;
 };
+
+const allDepartments = { id: "", name: "כל המחלקות שבניהולי" };
 
 const dateFormatter = new Intl.DateTimeFormat("he-IL", {
   weekday: "long",
@@ -36,60 +33,94 @@ const timeFormatter = new Intl.DateTimeFormat("he-IL", {
   timeZone: "Asia/Jerusalem",
 });
 
-function preparePlan(data: Data, week: string, departmentId: string): Plan {
-  const versions = data.schedule_versions.filter(
-    (row) => row.week_start === week && row.department_id === departmentId,
+const additionLabel = (count: number) =>
+  count === 1 ? "משמרת חדשה" : "משמרות חדשות";
+const fillLabel = (count: number) =>
+  count === 1 ? "מילוי משמרת פנויה" : "מילויי משמרות פנויות";
+
+function PlanDepartment({
+  group,
+  names,
+}: {
+  group: WeeklyPlanGroup;
+  names: Names;
+}) {
+  const { department, target, unavailable } = group;
+  const additions = target.operations.filter(
+    (operation) => operation.kind === "create",
+  ).length;
+  const fills = target.operations.length - additions;
+  const name = String(department.name);
+
+  const days = new Map<string, Operation[]>();
+  for (const operation of target.operations) {
+    const date = localDate(operation.starts_at);
+    const day = days.get(date);
+    if (day) day.push(operation);
+    else days.set(date, [operation]);
+  }
+
+  return (
+    <details className={styles.department} aria-label={name}>
+      <summary>
+        <span className={styles.departmentInfo}>
+          <strong>{name}</strong>
+          <span className={styles.counts}>
+            {unavailable && <span>{unavailable.label}</span>}
+            {additions > 0 && (
+              <span data-kind="create">
+                {additions} {additionLabel(additions)}
+              </span>
+            )}
+            {fills > 0 && (
+              <span data-kind="update">
+                {fills} {fillLabel(fills)}
+              </span>
+            )}
+          </span>
+        </span>
+        <ChevronDown size={17} aria-hidden />
+      </summary>
+      {unavailable && <p className={styles.reason}>{unavailable.detail}</p>}
+      {Array.from(days, ([day, operations]) => (
+        <section key={day} className={styles.day}>
+          <h3>{dateFormatter.format(new Date(`${day}T12:00:00Z`))}</h3>
+          <ul>
+            {operations.map((operation) => (
+              <li key={operation.id} data-kind={operation.kind}>
+                <div>
+                  <span className={styles.kind}>
+                    {operation.kind === "create"
+                      ? "משמרת חדשה"
+                      : "מילוי משמרת פנויה"}
+                  </span>
+                  <strong>
+                    {operation.employee_id
+                      ? names.employees.get(operation.employee_id) ||
+                        "עובד משובץ"
+                      : "פנויה לשיבוץ"}
+                  </strong>
+                  <small>
+                    {names.sites.get(operation.site_id)} ·{" "}
+                    {names.roles.get(operation.role_id)}
+                  </small>
+                </div>
+                <bdi dir="ltr">
+                  {timeFormatter.format(Date.parse(operation.starts_at))}–
+                  {timeFormatter.format(Date.parse(operation.ends_at))}
+                </bdi>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
+    </details>
   );
-  const version = versions.find((row) => row.status !== "archived");
-  const target = {
-    week,
-    departmentId,
-    versionId: version?.id,
-    revision: Number(version?.revision || 0),
-  };
-  if (version?.status === "published") {
-    return {
-      operations: [],
-      target,
-      message: "הסידור למחלקה כבר פורסם. אפשר לפתוח אותו לעריכה מעמוד המחלקה.",
-    };
-  }
-  if (!version && versions.length) {
-    return {
-      operations: [],
-      target,
-      message: "הסידור למחלקה נמצא בסל המחזור. אפשר לשחזר אותו מעמוד המחלקה.",
-    };
-  }
-  const configured =
-    data.coverage_requirements.some((r) => r.department_id === departmentId) ||
-    data.shift_templates.some(
-      (t) =>
-        t.department_id === departmentId &&
-        t.confirmed &&
-        t.start_time &&
-        t.end_time,
-    );
-  const hasOpenShift = data.shift_assignments.some(
-    (shift) => shift.version_id === version?.id && !shift.employee_id,
-  );
-  try {
-    const operations = planWeek(
-      data,
-      week,
-      configured || !hasOpenShift ? "generate" : "fill",
-      departmentId,
-    );
-    return { operations, target };
-  } catch (error) {
-    return { operations: [], target, message: (error as Error).message };
-  }
 }
 
 export default function WeeklyPlan({
   data,
   departments,
-  departmentId,
   week,
   dateRange,
   names,
@@ -97,10 +128,9 @@ export default function WeeklyPlan({
 }: {
   data: Data;
   departments: Row[];
-  departmentId: string;
   week: string;
   dateRange: ReactNode;
-  names: Record<"employees" | "sites" | "roles", Map<string, string>>;
+  names: Names;
   onApply: ApplyWeeklyPlan;
 }) {
   const [open, setOpen] = useState(false);
@@ -108,29 +138,45 @@ export default function WeeklyPlan({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const committing = useRef(false);
-  const days = new Map<string, Plan["operations"]>();
-  for (const operation of plan?.operations || []) {
-    const date = localDate(operation.starts_at);
-    const day = days.get(date);
-    if (day) day.push(operation);
-    else days.set(date, [operation]);
-  }
-  const additions =
-    plan?.operations.filter((op) => op.kind === "create").length ?? 0;
-  const placements =
-    plan?.operations.filter((op) => op.employee_id).length ?? 0;
+  const scope = useRef<HTMLFieldSetElement>(null);
+  const targets =
+    plan?.groups
+      .map((group) => group.target)
+      .filter((target) => target.operations.length) ?? [];
+  const hasTargets = targets.length > 0;
+  const additions = targets.reduce(
+    (count, target) =>
+      count +
+      target.operations.filter((operation) => operation.kind === "create")
+        .length,
+    0,
+  );
+  const fills =
+    targets.reduce((count, target) => count + target.operations.length, 0) -
+    additions;
 
-  function showPlan(id: string) {
+  function showPlan(departmentId: string) {
     setError("");
-    setPlan(preparePlan(data, week, id));
+    const groups = planDepartments(
+      data,
+      week,
+      departmentId
+        ? departments.filter((department) => department.id === departmentId)
+        : departments,
+    );
+    setPlan((previous) => ({
+      id: (previous?.id ?? 0) + 1,
+      departmentId,
+      groups,
+    }));
   }
 
   async function apply() {
-    if (!plan?.operations.length || committing.current) return;
+    if (!hasTargets || committing.current) return;
     committing.current = true;
     setSaving(true);
     try {
-      await onApply(plan.operations, plan.target);
+      await onApply(targets);
       setOpen(false);
     } catch (error) {
       setError((error as Error).message);
@@ -145,7 +191,7 @@ export default function WeeklyPlan({
       open={open}
       onOpenChange={(open) => {
         if (committing.current) return;
-        if (open) showPlan(departmentId || departments[0].id);
+        if (open) showPlan("");
         setOpen(open);
       }}
     >
@@ -154,7 +200,13 @@ export default function WeeklyPlan({
       </Dialog.Trigger>
       <Dialog.Portal>
         <Dialog.Overlay className={`overlay ${styles.overlay}`} />
-        <Dialog.Content className={`modal ${styles.dialog}`}>
+        <Dialog.Content
+          className={`modal ${styles.dialog}`}
+          onEscapeKeyDown={(event) => {
+            if (scope.current?.querySelector('[aria-expanded="true"]'))
+              event.preventDefault();
+          }}
+        >
           <header className={styles.heading}>
             <div>
               <Dialog.Title>תכנון שבועי</Dialog.Title>
@@ -169,12 +221,11 @@ export default function WeeklyPlan({
           {plan && (
             <>
               <div className={styles.scope}>
-                <fieldset disabled={saving}>
-                  <span className={styles.scopeLabel}>מחלקה לתכנון</span>
+                <fieldset disabled={saving} ref={scope}>
                   <DepartmentSelect
-                    departments={departments}
-                    value={plan.target.departmentId}
-                    label="מחלקה לתכנון"
+                    departments={[allDepartments, ...departments]}
+                    value={plan.departmentId}
+                    label="היקף תכנון"
                     onChange={showPlan}
                   />
                 </fieldset>
@@ -183,67 +234,37 @@ export default function WeeklyPlan({
                   השיבוצים הקיימים נשמרים. ההצעה תישמר כטיוטה רק לאחר אישור.
                 </p>
               </div>
-              <div className={styles.preview} aria-live="polite">
-                {plan.operations.length ? (
-                  <>
-                    <div className={styles.summary}>
-                      <span>
-                        <strong>{additions}</strong> משמרות חדשות
-                      </span>
-                      <span>
-                        <strong>{placements}</strong> שיבוצים מוצעים
-                      </span>
-                    </div>
-                    {Array.from(days, ([day, operations]) => (
-                      <section key={day} className={styles.day}>
-                        <h3>
-                          {dateFormatter.format(new Date(`${day}T12:00:00Z`))}
-                        </h3>
-                        <ul>
-                          {operations.map((op) => (
-                            <li key={op.id}>
-                              <div>
-                                <strong>
-                                  {op.employee_id
-                                    ? names.employees.get(op.employee_id) ||
-                                      "עובד משובץ"
-                                    : "פנויה לשיבוץ"}
-                                </strong>
-                                <small>
-                                  {names.sites.get(op.site_id)} ·{" "}
-                                  {names.roles.get(op.role_id)}
-                                </small>
-                              </div>
-                              <bdi dir="ltr">
-                                {timeFormatter.format(Date.parse(op.starts_at))}
-                                –{timeFormatter.format(Date.parse(op.ends_at))}
-                              </bdi>
-                            </li>
-                          ))}
-                        </ul>
-                      </section>
-                    ))}
-                  </>
-                ) : (
-                  <p className={styles.empty}>
-                    {plan.message ||
-                      "אין כרגע משמרות להוסיף או שיבוצים פנויים שאפשר למלא."}
-                  </p>
+              <div className={styles.preview} key={plan.id}>
+                <div className={styles.summary} role="status">
+                  <span data-kind="create">
+                    <strong>{additions}</strong> {additionLabel(additions)}
+                  </span>
+                  <span data-kind="update">
+                    <strong>{fills}</strong> {fillLabel(fills)}
+                  </span>
+                </div>
+                {plan.groups.map((group) => (
+                  <PlanDepartment
+                    key={group.department.id}
+                    group={group}
+                    names={names}
+                  />
+                ))}
+                {plan.groups.length === 0 && (
+                  <p className={styles.reason}>אין מחלקות לתכנון.</p>
                 )}
               </div>
               <footer className={styles.actions}>
                 {error && <p role="alert">{error}</p>}
                 <Dialog.Close type="button" disabled={saving}>
-                  {plan.operations.length ? "ביטול" : "סגירה"}
+                  {hasTargets ? "ביטול" : "סגירה"}
                 </Dialog.Close>
-                {plan.operations.length > 0 && (
+                {hasTargets && (
                   <button
                     type="button"
                     className="primary"
                     disabled={saving}
-                    onClick={
-                      error ? () => showPlan(plan.target.departmentId) : apply
-                    }
+                    onClick={error ? () => showPlan(plan.departmentId) : apply}
                   >
                     {saving
                       ? "שומר…"

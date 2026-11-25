@@ -7,6 +7,10 @@ export const board = (page: Page) =>
   page.getByRole("region", exact("לוח שבועי לכל המחלקות"));
 export const planning = (page: Page) =>
   page.getByRole("region", exact("ניהול הסידור"));
+export const departmentScheduleButton = (container: Locator | Page, name: string) =>
+  container.getByRole("button", exact(`לסידור המחלקה · ${name}`));
+export const shiftWorker = (editor: Locator) =>
+  editor.getByRole("combobox", { name: /^(שיבוץ עובד|החלפת עובד)$/ });
 const more = (panel: Locator) =>
   panel
     .locator("summary")
@@ -27,6 +31,11 @@ export async function clickWeekAction(page: Page, name: string) {
   const action = panel.getByRole("button", exact(name));
   if (!(await action.isVisible())) await openMore(panel);
   await action.click();
+  if (name === "פרסום סידור") {
+    const review = page.getByRole("dialog", exact("סקירה ופרסום סידור"));
+    await review.getByRole("button", { name: /^אישור ופרסום/ }).click();
+    await expect(review).toBeHidden();
+  }
 }
 
 export async function openMain(page: Page, name: string) {
@@ -37,7 +46,7 @@ export async function openMain(page: Page, name: string) {
 
 export async function openDepartment(page: Page, name: string) {
   await openMain(page, "סידור עבודה");
-  await board(page).getByRole("button", exact(name)).click();
+  await departmentScheduleButton(board(page), name).click();
 }
 
 export async function chooseDepartment(

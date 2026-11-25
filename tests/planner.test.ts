@@ -1,6 +1,11 @@
 import { it, expect } from "vitest";
 import { seedDemo } from "../src/lib/demo";
-import { canAssign, planWeek, copyPreviousWeek } from "../src/lib/planner";
+import {
+  canAssign,
+  planWeek,
+  planDepartments,
+  copyPreviousWeek,
+} from "../src/lib/planner";
 import {
   addDays,
   interval,
@@ -118,4 +123,105 @@ it("builds a full week from confirmed templates when there are no coverage requi
       "open",
     ),
   ).toHaveLength(21);
+});
+
+it("considers earlier departments' proposals when assigning a shared employee", () => {
+  const data = seedDemo().data;
+  const week = addDays(String(data.schedule_versions[0].week_start), 7);
+  const [first, second] = data.departments
+    .slice()
+    .sort((a, b) => a.id.localeCompare(b.id));
+  const [firstRole, secondRole] = [first, second].map((department) =>
+    data.roles.find((role) => role.department_id === department.id)!,
+  );
+  const employee = data.employees[0];
+  data.employees = [employee];
+  data.settings[0].min_rest_hours = 2;
+  data.availability = [];
+  data.shift_templates = [];
+  data.employee_departments = [
+    {
+      id: "membership-1",
+      employee_id: employee.id,
+      department_id: first.id,
+      role_id: firstRole.id,
+    },
+    {
+      id: "membership-2",
+      employee_id: employee.id,
+      department_id: second.id,
+      role_id: secondRole.id,
+    },
+  ];
+  const coverage = {
+    weekday: 0,
+    site_id: data.sites[0].id,
+    required_count: 1,
+  };
+  data.coverage_requirements = [
+    {
+      ...coverage,
+      id: "one",
+      department_id: first.id,
+      role_id: firstRole.id,
+      start_time: "07:00",
+      end_time: "15:00",
+    },
+    {
+      ...coverage,
+      id: "two",
+      department_id: second.id,
+      role_id: secondRole.id,
+      start_time: "07:00",
+      end_time: "15:00",
+    },
+    {
+      ...coverage,
+      id: "three",
+      department_id: second.id,
+      role_id: secondRole.id,
+      start_time: "16:00",
+      end_time: "20:00",
+    },
+  ];
+
+  const before = structuredClone(data);
+  const groups = planDepartments(data, week, [second, first]);
+  expect(groups.map((group) => group.department.id)).toEqual([
+    first.id,
+    second.id,
+  ]);
+  expect(groups[0].target.operations.map((op) => op.employee_id)).toEqual([
+    employee.id,
+  ]);
+  expect(groups[1].target.operations.map((op) => op.employee_id)).toEqual([
+    null,
+    null,
+  ]);
+  expect(data).toEqual(before);
+});
+
+it("proposes additions and vacancy fills for a published week without touching staffed shifts", () => {
+  const data = seedDemo().data;
+  const department = data.departments[0];
+  const version = data.schedule_versions.find(
+    (row) => row.department_id === department.id && row.status === "draft",
+  )!;
+  version.status = "published";
+  const open = data.shift_assignments.find(
+    (shift) => shift.version_id === version.id,
+  )!;
+  open.employee_id = null;
+  const before = structuredClone(data);
+  const [group] = planDepartments(data, String(version.week_start), [
+    department,
+  ]);
+
+  expect(group.target.status).toBe("published");
+  expect(group.target.versionId).toBe(version.id);
+  expect(group.target.operations.some((op) => op.kind === "create")).toBe(true);
+  expect(group.target.operations.filter((op) => op.kind === "update")).toEqual([
+    { ...open, employee_id: expect.any(String), kind: "update" },
+  ]);
+  expect(data).toEqual(before);
 });

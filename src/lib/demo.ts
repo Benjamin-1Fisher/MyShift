@@ -4,6 +4,12 @@ import { canAssign } from "./planner";
 import { isWeeklyAvailable } from "./weekly-availability";
 import { absenceInterval, isAbsence } from "./absences";
 import {
+  weeklyScheduleSchema,
+  type PersonalSchedule,
+  type PublicationReview,
+  type WeeklyScheduleRequest,
+} from "./weekly-schedule";
+import {
   publicationChanges,
   scheduleSnapshot,
   type PublicationSnapshot,
@@ -20,6 +26,7 @@ import {
   tables,
   type Assignment,
   type Data,
+  type Operation,
   type Row,
 } from "./domain";
 
@@ -43,6 +50,7 @@ type Store = {
   departmentsUpgraded?: boolean;
   sampleSchedulesAdded?: boolean;
   publications?: Record<string, PublicationSnapshot>;
+  withdrawnPublications?: string[];
 };
 const rowSchema = z.object({ id: z.string() }).catchall(z.unknown());
 const dataSchema = z.object(
@@ -165,6 +173,16 @@ export function seedDemo(): Store {
 
 function preparePublications(store: Store): Store {
   store.publications ||= {};
+  store.withdrawnPublications ??= store.data.schedule_versions
+    .filter((v) => {
+      if (v.status === "published" || !store.publications?.[v.id]) return false;
+      if (v.status === "archived") return true;
+      const lastAction = store.data.audit_logs.find(
+        (entry) => (entry.after_data as Row | undefined)?.id === v.id,
+      );
+      return lastAction?.action !== "פתיחת סידור לעריכה";
+    })
+    .map((v) => v.id);
   for (const version of store.data.schedule_versions.filter(
     (v) => v.status === "published",
   )) {
@@ -207,7 +225,9 @@ function notifyPublication(
 ) {
   if (previousStatus === version.status) return;
   const snapshot = scheduleSnapshot(store.data, version.id);
-  const previous = store.publications?.[version.id];
+  const current = store.publications?.[version.id];
+  const previous = latestPublication(store, version)?.snapshot;
+  const withdrawn = store.withdrawnPublications!.includes(version.id);
   const details: Record<string, unknown> = publicationChanges(
     previous || [],
     snapshot,
@@ -224,9 +244,14 @@ function notifyPublication(
         : "schedule_published";
     store.publications ||= {};
     store.publications[version.id] = snapshot;
-  } else if (previousStatus === "published") {
+    store.withdrawnPublications = store.withdrawnPublications!.filter((id) => id !== version.id);
+    if (current && !withdrawn && JSON.stringify(current) === JSON.stringify(snapshot))
+      return;
+  } else if (version.status === "archived" && current && !withdrawn) {
+    store.withdrawnPublications!.push(version.id);
     kind = "schedule_withdrawn";
-    details.reason = version.status === "archived" ? "archived" : "reopened";
+    Object.assign(details, publicationChanges(current, []));
+    details.reason = "archived";
   } else return;
   store.data.notifications.unshift({
     id: uid(),
@@ -243,17 +268,30 @@ function notifyPublication(
   });
 }
 
+const sampleDepartments = [
+  [1, "אחמ״שים", "#7360d6", ["גלי לביא", "אבנר זמיר"]],
+  [2, "סיירים", "#149c8e", ["רועי שקד", "הילה ארז"]],
+  [10, "קבלה", "#3979bb", ["ליאור פרץ", "מיכל סער"]],
+  [11, "חניונים", "#b27724", ["אורי נבון", "דנה שביט"]],
+] as const;
+
+function upgradeDemoEmployeeNames(data: Data) {
+  for (const [index, department, , names] of sampleDepartments) {
+    names.forEach((name, offset) => {
+      const id = fixed(index * 10 + 700 + offset);
+      const employee = data.employees.find((row) => row.id === id);
+      if (employee?.name === `${department} — עובד לדוגמה ${offset + 1}`)
+        employee.name = name;
+    });
+  }
+}
+
 // Additive upgrade: keep the same storage key, employees, shifts, archives and history.
 export function upgradeDemo(store: Store): Store {
   const data = store.data;
   data.manager_departments ||= [];
   if (store.departmentsUpgraded) return store;
-  for (const [index, name, color] of [
-    [1, "אחמ״שים", "#7360d6"],
-    [2, "סיירים", "#149c8e"],
-    [10, "קבלה", "#3979bb"],
-    [11, "חניונים", "#b27724"],
-  ] as const) {
+  for (const [index, name, color, employeeNames] of sampleDepartments) {
     if (data.departments.some((d) => d.id === fixed(index) || d.name === name))
       continue;
     const department_id = fixed(index);
@@ -273,7 +311,7 @@ export function upgradeDemo(store: Store): Store {
       const employee_id = fixed(index * 10 + 700 + i);
       data.employees.push({
         id: employee_id,
-        name: `${name} — עובד לדוגמה ${i + 1}`,
+        name: employeeNames[i],
         active: true,
       });
       data.employee_departments.push({
@@ -429,6 +467,7 @@ function read(): Store {
     );
     const before = JSON.stringify(store);
     upgradeDemo(store);
+    upgradeDemoEmployeeNames(store.data);
     addSampleSchedules(store);
     preparePublications(store);
     if (JSON.stringify(store) !== before) write(store);
@@ -441,6 +480,20 @@ function read(): Store {
 }
 export function loadDemo(): Data {
   return read().data;
+}
+export function loadDemoWorkspace() {
+  const store = read();
+  const versions = store.data.schedule_versions.filter(
+    (v) => v.status !== "archived" && store.publications?.[v.id] &&
+      !store.withdrawnPublications?.includes(v.id),
+  );
+  const personal: PersonalSchedule = {
+    schedule_versions: versions.map((v) => ({ ...v, status: "published" })),
+    shift_assignments: versions.flatMap((v) =>
+      store.publications![v.id].map((shift) => ({ ...shift, version_id: v.id })),
+    ),
+  };
+  return { data: store.data, personal };
 }
 function upsert(rows: Row[], value: Record<string, unknown>) {
   const row = { ...value, id: String(value.id || uid()) };
@@ -543,6 +596,155 @@ function apply(assignments: Assignment[], changes: Change[]) {
   return assignments
     .filter((a) => !changes.some((c) => c.before?.id === a.id))
     .concat(changes.flatMap((c) => (c.after ? [c.after] : [])));
+}
+
+function operationChanges(data: Data, version: Row, operations: Operation[], additive = false) {
+  const seen = new Set<string>();
+  return operations.map((op): Change => {
+    const before = op.kind === "create" ? null : data.shift_assignments.find(
+      (shift) => shift.id === op.id && shift.version_id === version.id,
+    );
+    if (op.kind !== "create") {
+      if (!before || seen.has(op.id)) throw new Error("המשמרת השתנתה. רעננו ונסו שוב");
+      seen.add(op.id);
+    }
+    if (additive && op.kind !== "create" && (
+      op.kind === "delete" || before?.employee_id || !op.employee_id ||
+      before?.site_id !== op.site_id || before.role_id !== op.role_id ||
+      Date.parse(before.starts_at) !== Date.parse(op.starts_at) ||
+      Date.parse(before.ends_at) !== Date.parse(op.ends_at)
+    )) throw new Error("תכנון שבועי יכול רק להוסיף משמרות ולמלא משמרות פנויות");
+    if (op.kind !== "delete" && op.department_id !== version.department_id)
+      throw new Error("המשמרת אינה שייכת למחלקה של הסידור");
+    if (op.kind === "delete") return { before: before!, after: null };
+    const { kind, ...fields } = op;
+    return {
+      before: before || null,
+      after: { ...fields, id: kind === "create" ? uid() : op.id, version_id: version.id },
+    };
+  });
+}
+
+function latestPublication(store: Store, version: Row) {
+  const latest = store.data.notifications.find((notice) =>
+    notice.week_start === version.week_start && notice.department_id === version.department_id &&
+    (notice.kind === "schedule_published" || notice.kind === "schedule_changed"),
+  );
+  const id = typeof latest?.version_id === "string" ? latest.version_id : version.id;
+  const snapshot = store.publications?.[id];
+  return snapshot ? { id, snapshot } : undefined;
+}
+
+function validatePublication(store: Store, version: Row, selected: Set<string>) {
+  const { data } = store;
+  validate(data, data.shift_assignments, version);
+  const rest = Number(data.settings[0]?.min_rest_hours ?? 0) * 3600000;
+  const stillVisible = data.schedule_versions.filter((other) =>
+    other.status === "draft" && !selected.has(other.id) && !store.withdrawnPublications?.includes(other.id),
+  ).flatMap((other) => store.publications?.[other.id] || []);
+  if (data.shift_assignments.some((shift) => shift.version_id === version.id && shift.employee_id &&
+    stillVisible.some((other) => other.employee_id === shift.employee_id &&
+      Date.parse(other.starts_at) < Date.parse(shift.ends_at) + rest &&
+      Date.parse(other.ends_at) > Date.parse(shift.starts_at) - rest,
+    ))) throw new Error("שיבוץ מתנגש עם סידור אחר שעדיין מוצג לעובדים. בדקו אם צריך לפרסם גם את העדכון למחלקה השנייה");
+}
+
+function reviewPublication(store: Store, version: Row, selected: Set<string>): PublicationReview | null {
+  const previous = latestPublication(store, version);
+  const before = previous?.snapshot || [];
+  const after = scheduleSnapshot(store.data, version.id);
+  if (!previous && !after.length) return null;
+  const old = new Map(before.map((shift) => [shift.id, shift]));
+  const current = new Map(after.map((shift) => [shift.id, shift]));
+  const changes = [...new Set([...old.keys(), ...current.keys()])].flatMap((id) => {
+    const from = old.get(id);
+    const to = current.get(id);
+    if (JSON.stringify(from) === JSON.stringify(to)) return [];
+    return [{
+      before: from ? { ...from, version_id: previous?.id || version.id } : null,
+      after: to ? { ...to, version_id: version.id } : null,
+    }];
+  });
+  let error = null;
+  try {
+    validatePublication(store, version, selected);
+  } catch (cause) {
+    error = (cause as Error).message;
+  }
+  return {
+    department_id: String(version.department_id), version_id: version.id,
+    revision: Number(version.revision), first_publication: !previous,
+    open_count: after.filter((shift) => !shift.employee_id).length, changes, error,
+  };
+}
+
+function runWeeklyCommand(store: Store, input: WeeklyScheduleRequest) {
+  const { data } = store;
+  const { action, week } = input;
+  if (sunday(new Date(week + "T12:00:00Z")) !== week)
+    throw new Error("יש לבחור תחילת שבוע תקינה");
+  const activeDepartments = new Set(
+    data.departments.filter((department) => department.active !== false).map(({ id }) => id),
+  );
+  const versions = data.schedule_versions.filter((version) => version.week_start === week);
+  if (action === "review_weekly_publication") {
+    const drafts = versions.filter((version) =>
+      version.status === "draft" && activeDepartments.has(String(version.department_id)));
+    const selected = new Set(drafts.map((version) => version.id));
+    return drafts.flatMap((version) => reviewPublication(store, version, selected) || []);
+  }
+  const selected = new Set(input.targets.flatMap((target) => target.version_id || []));
+  const seen = new Set<string>();
+  const result = input.targets.map((target) => {
+    const departmentId = target.department_id;
+    if (!activeDepartments.has(departmentId) || seen.has(departmentId))
+      throw new Error("בחירת המחלקות אינה תקינה");
+    seen.add(departmentId);
+    let version = versions.find((v) => v.department_id === departmentId && v.status !== "archived");
+    const expectedStatus = "status" in target ? target.status : "draft";
+    if ((version?.id || null) !== target.version_id ||
+      Number(version?.revision || 0) !== target.revision ||
+      (version?.status || null) !== expectedStatus ||
+      (!version && versions.some((v) => v.department_id === departmentId))) {
+      throw new Error("הסידור השתנה. יש לפתוח תצוגה מקדימה חדשה");
+    }
+    if (!version) {
+      version = { id: uid(), week_start: week, department_id: departmentId,
+        status: "draft", revision: 0, created_at: new Date().toISOString() };
+      data.schedule_versions.push(version);
+    }
+    const before = { ...version };
+    if (!("operations" in target)) {
+      const review = reviewPublication(store, version, selected);
+      if (!review || review.error) throw new Error(review?.error || "אין טיוטה לפרסום");
+      version.status = "published";
+      notifyPublication(store, version, before.status);
+      audit(store, "פרסום סידור מקומי", before, version);
+    }
+    let changes: Change[] = [];
+    if ("operations" in target) {
+      version.status = "draft";
+      changes = operationChanges(data, version, target.operations, action === "apply_weekly_plan");
+      data.shift_assignments = apply(data.shift_assignments, changes);
+      validate(data, data.shift_assignments, version);
+      if ("restore_published" in target && target.restore_published) {
+        const previous = store.publications?.[version.id];
+        const snapshot = scheduleSnapshot(data, version.id);
+        if (!previous || store.withdrawnPublications?.includes(version.id) ||
+          JSON.stringify(previous) !== JSON.stringify(snapshot))
+          throw new Error("לא ניתן לשחזר את מצב הפרסום הקודם");
+        version.status = "published";
+      }
+      changes.forEach((change) =>
+        audit(store, "שינוי משמרת בהדגמה", change.before, change.after),
+      );
+    }
+    version.revision = Number(version.revision) + 1;
+    store.pending = store.pending.filter((p) => p.version !== version.id);
+    return { department_id: departmentId, version_id: version.id, revision: Number(version.revision), changes };
+  });
+  write(store);
+  return result;
 }
 
 export async function demoCommand(
@@ -669,6 +871,8 @@ export async function demoCommand(
     return { ok: true };
   }
   if (url !== "/api/change") throw new Error("פעולה אינה זמינה בהדגמה");
+  const weekly = weeklyScheduleSchema.safeParse(body);
+  if (weekly.success) return runWeeklyCommand(store, weekly.data);
   const input = z
     .object({
       action: z.enum([
@@ -787,7 +991,7 @@ export async function demoCommand(
       const nextStatus = input.action === "publish" ? "published" : "draft";
       if (previousStatus === nextStatus) return version.id;
       if (input.action === "publish")
-        validate(data, data.shift_assignments, version);
+        validatePublication(store, version, new Set([version.id]));
       version.status = nextStatus;
       version.revision = Number(version.revision) + 1;
       notifyPublication(store, version, previousStatus);
@@ -802,30 +1006,7 @@ export async function demoCommand(
     const version = data.schedule_versions.find((v) => v.id === input.version);
     if (!version || version.status !== "draft" || !input.operations)
       throw new Error("אפשר לשנות רק סידור במצב טיוטה");
-    const changes: Change[] = [];
-    const seen = new Set<string>();
-    for (const op of input.operations) {
-      const before =
-        op.kind === "create"
-          ? null
-          : data.shift_assignments.find(
-              (a) => a.id === op.id && a.version_id === version.id,
-            );
-      if (op.kind !== "create" && (!before || seen.has(op.id)))
-        throw new Error("המשמרת השתנתה. רעננו ונסו שוב");
-      if (op.kind !== "create") seen.add(op.id);
-      const after =
-        op.kind === "delete"
-          ? null
-          : ({
-              ...op,
-              id: op.kind === "create" ? uid() : op.id,
-              version_id: version.id,
-            } as Assignment);
-      if (after && after.department_id !== version.department_id)
-        throw new Error("המשמרת אינה שייכת למחלקה של הסידור");
-      changes.push({ before: before || null, after });
-    }
+    const changes = operationChanges(data, version, input.operations);
     validate(data, apply(data.shift_assignments, changes), version);
     const pending = {
       id: uid(),

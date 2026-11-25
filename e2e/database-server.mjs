@@ -62,6 +62,11 @@ const functions = {
   preview_change: ["vid", "ops"],
   confirm_change: ["rid"],
   cancel_change: ["rid"],
+  apply_weekly_plan: ["week", "targets"],
+  undo_weekly_plan: ["week", "targets"],
+  review_weekly_publication: ["week"],
+  publish_weekly_schedule: ["week", "targets"],
+  read_personal_schedule: [],
 };
 createServer(async (req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "http://localhost:3002");
