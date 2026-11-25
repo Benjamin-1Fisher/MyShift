@@ -224,6 +224,8 @@ test("a manager can fill the flagged shift and see the weekly board update", asy
   const storedSchedule = () =>
     page.evaluate(() => localStorage.getItem("myshift.demo.v1"));
   const beforeRecovery = await storedSchedule();
+  const recoveryUrl = page.url();
+  expect(new URL(recoveryUrl).searchParams.get("department")).toBeTruthy();
   expect(beforeRecovery).toBeTruthy();
   const bootstrapScripts = /\/_next\/static\/.*\.js(?:\?|$)/;
   await page.route(bootstrapScripts, (route) => route.abort());
@@ -233,8 +235,12 @@ test("a manager can fill the flagged shift and see the weekly board update", asy
   await expect(recovery).toBeVisible();
   expect(await storedSchedule()).toBe(beforeRecovery);
   await page.unroute(bootstrapScripts);
+  const navigated = page.waitForEvent("framenavigated", {
+    predicate: (frame) => frame === page.mainFrame(),
+  });
   await recovery.click();
-  await expect(page).toHaveURL(/\/demo\?view=organization$/);
+  await navigated;
+  await expect(page).toHaveURL(recoveryUrl);
   await expect(board.getByRole("button", { name: "0 פתוחות לשיבוץ", exact: true })).toBeVisible();
   expect(await storedSchedule()).toBe(beforeRecovery);
 
