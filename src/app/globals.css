@@ -1175,9 +1175,6 @@ button:disabled {
   cursor: not-allowed;
 }
 .demo-banner {
-  position: sticky;
-  inset-block-start: 0;
-  z-index: 21;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1190,8 +1187,17 @@ button:disabled {
 .demo-banner + .app {
   min-height: calc(100vh - var(--demo-bar-height));
 }
-.demo-banner + .app .sidebar {
-  inset-block-start: var(--demo-bar-height);
+@media screen and (min-width: 761px) {
+  .demo-banner + .app .sidebar {
+    position: sticky;
+    inset-block-start: 0;
+    align-self: flex-start;
+    height: 100dvh;
+    flex-shrink: 0;
+  }
+  .demo-banner + .app main {
+    margin-inline-start: 0;
+  }
 }
 .demo-banner .button,
 .demo-banner select {

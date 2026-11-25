@@ -52,6 +52,14 @@ test("landing and demo fit phone and navigation works", async ({ page }) => {
     expect(linkBox.x).toBeGreaterThanOrEqual(0);
   }
   await page.setViewportSize({ width: 390, height: 844 });
+  await page.evaluate(() => window.scrollTo(0, 250));
+  await expect
+    .poll(async () => {
+      const box = await controls.boundingBox();
+      return box ? box.y + box.height : Infinity;
+    })
+    .toBeLessThanOrEqual(0);
+  await page.evaluate(() => window.scrollTo(0, 0));
   await expect(
     page.getByRole("region", { name: "לוח שבועי לכל המחלקות" }),
   ).toBeVisible();
