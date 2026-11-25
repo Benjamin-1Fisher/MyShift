@@ -2,18 +2,20 @@ import { test, expect, type Locator, type Page } from "@playwright/test";
 import {
   board,
   clickWeekAction,
+  departmentScheduleButton,
   exact,
   openMore,
   navigation,
   openDepartment,
   openMain,
   planning,
+  shiftWorker,
 } from "./workspace-controls";
 
 async function saveWorker(page: Page, card: Locator, worker: string) {
   await card.locator(".shift-main").click();
   const editor = page.getByRole("dialog");
-  const select = editor.getByLabel("עובד במשמרת");
+  const select = shiftWorker(editor);
   await expect(select).toBeFocused();
   await select.selectOption(worker ? { label: worker } : "");
   await editor.getByRole("button", exact("שמירה")).click();
@@ -64,7 +66,7 @@ test("simple staffing flow saves directly, keeps open shifts, supports undo and 
     .getByRole("combobox", exact("אתר"))
     .selectOption({ label: "מתחם צפון" });
   await dialog.getByRole("button", { name: /לילה/ }).click();
-  await expect(dialog.getByLabel("עובד במשמרת")).toHaveValue("");
+  await expect(shiftWorker(dialog)).toHaveValue("");
   await dialog.getByRole("button", { name: "שמירה", exact: true }).click();
   await expect(dialog).toHaveCount(0);
   await expect(page.locator(".shift")).toHaveCount(15);
@@ -81,10 +83,18 @@ test("simple staffing flow saves directly, keeps open shifts, supports undo and 
     .click();
   await expect(night.locator("strong")).toHaveText("רוני סייר הדגמה");
   await night.locator(".shift-main").click();
-  await openMore(page.getByRole("dialog"));
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: "מחיקת משמרת", exact: true })
+  const deleteShift = dialog.getByRole("button", {
+    name: "מחיקת משמרת",
+    exact: true,
+  });
+  await deleteShift.click();
+  await expect(page.locator(".shift")).toHaveCount(15);
+  await expect(dialog.getByRole("button", exact("ביטול"))).toBeFocused();
+  await dialog.getByRole("button", exact("ביטול")).click();
+  await expect(deleteShift).toBeFocused();
+  await deleteShift.click();
+  await dialog
+    .getByRole("button", { name: "אישור מחיקה", exact: true })
     .click();
   await expect(page.locator(".shift")).toHaveCount(14);
   await page
@@ -348,13 +358,11 @@ test("employee form saves Friday-night availability and respects it in automatic
   await page.getByRole("button", { name: "הוספת משמרת", exact: true }).click();
   await form.getByRole("button", { name: /^ערב/ }).click();
   await expect(
-    form.getByLabel("עובד במשמרת").getByRole("option", { name: /^בן זמינות/ }),
+    shiftWorker(form).getByRole("option", { name: /^בן זמינות/ }),
   ).toBeDisabled();
   await form.getByRole("button", { name: /^בוקר/ }).click();
   await expect(
-    form
-      .getByLabel("עובד במשמרת")
-      .getByRole("option", { name: "בן זמינות", exact: true }),
+    shiftWorker(form).getByRole("option", { name: "בן זמינות", exact: true }),
   ).toBeEnabled();
 });
 
@@ -529,11 +537,11 @@ test("notifications show only published schedules and clear dated change alerts 
         localStorage.getItem("myshift.demo.v1")!,
       ).data.notifications.filter((n: { kind?: string }) => n.kind).length,
   );
-  expect(noticesBeforePublish).toBe(2);
+  expect(noticesBeforePublish).toBe(1);
   await clickWeekAction(page, "פרסום סידור");
   await bell().click();
-  await expect(page.locator(".schedule-notice")).toHaveCount(3);
-  await expect(page.locator(".notice-warning")).toHaveCount(2);
+  await expect(page.locator(".schedule-notice")).toHaveCount(2);
+  await expect(page.locator(".notice-warning")).toHaveCount(1);
   const changed = page.getByRole("article", {
     name: "פורסם שינוי בסידור",
     exact: true,
@@ -573,7 +581,7 @@ test("notifications show only published schedules and clear dated change alerts 
   });
   await page.reload();
   await bell().click();
-  await expect(page.locator(".schedule-notice")).toHaveCount(3);
+  await expect(page.locator(".schedule-notice")).toHaveCount(2);
   await expect(
     page.getByText("ברוכים הבאים להדגמה", { exact: false }),
   ).toHaveCount(0);
@@ -609,9 +617,9 @@ test("weekly board makes drafts and missing schedules actionable", async ({
   await conflicts.click();
   await expect(roster.getByRole("rowheader")).toHaveCount(1);
   await expect(
-    roster.getByRole("table").getByText("שיבוץ לבדיקה", { exact: true }),
+    roster.getByRole("table").getByText("מחוץ לזמינות הקבועה", { exact: true }),
   ).toBeVisible();
-  await roster.getByRole("button", exact("אחמ״שים")).click();
+  await departmentScheduleButton(roster, "אחמ״שים").click();
   await planning(page).getByRole("button", exact("בדיקת שיבוצים")).click();
   await expect(page.locator(".shift")).toHaveCount(1);
   await expect(page.locator(".shift")).toContainText("דניאל לוי");
@@ -621,9 +629,9 @@ test("weekly board makes drafts and missing schedules actionable", async ({
   await roster.getByRole("button", exact("השבוע הבא")).click();
   const supervisors = roster
     .getByRole("row")
-    .filter({ has: page.getByRole("button", exact("אחמ״שים")) });
+    .filter({ has: departmentScheduleButton(page, "אחמ״שים") });
   await expect(supervisors).toContainText("טרם נוצר");
-  await supervisors.getByRole("button", exact("אחמ״שים")).click();
+  await departmentScheduleButton(supervisors, "אחמ״שים").click();
   await expect(
     planning(page).getByRole("button", exact("יצירת סידור")),
   ).toBeVisible();
@@ -738,4 +746,57 @@ test("employee absence button handles sickness and vacation dates without changi
   await expect(
     employee.getByText("היעדרות בשבוע הנבחר", { exact: true }),
   ).toHaveCount(0);
+});
+
+test("board publishes selected drafts and employees keep their last published shifts while editing", async ({ page }) => {
+  await page.clock.setFixedTime(new Date("2026-11-22T08:00:00Z"));
+  await page.setViewportSize({ width: 472, height: 904 });
+  await page.goto("/demo");
+  const roster = board(page);
+  const review = page.getByRole("dialog", exact("סקירה ופרסום סידור"));
+  const openReview = () => roster.getByRole("button", { name: /^סקירה ופרסום/ }).click();
+  const confirmReview = () => review.getByRole("button", { name: /^אישור ופרסום/ }).click();
+  const identity = page.getByLabel("תצוגת הדגמה");
+
+  await openReview();
+  await expect(review.getByRole("checkbox", { name: /אחמ״שים/ })).toBeChecked();
+  await expect(review.getByRole("checkbox", { name: /סיירים/ })).toBeChecked();
+  await review.getByRole("checkbox", { name: /קבלה/ }).uncheck();
+  await review.getByRole("checkbox", { name: /חניונים/ }).uncheck();
+  await expect(review.getByRole("button", { name: /^אישור ופרסום/ })).toContainText("2");
+  await confirmReview();
+  await expect(review).toBeHidden();
+  await expect(page.getByRole("status")).toContainText("הסידורים פורסמו");
+
+  await identity.selectOption({ label: "עובד · דניאל לוי" });
+  const personalShifts = page.locator(".shift");
+  await expect(personalShifts.first()).toBeVisible();
+  const originalCount = await personalShifts.count();
+  await identity.selectOption({ label: "מנהל" });
+  await departmentScheduleButton(roster, "אחמ״שים").click();
+  await page.getByRole("button", exact("פתיחה לעריכה")).click();
+  await saveWorker(page, page.locator(".shift").filter({ hasText: "דניאל לוי" }).first(), "");
+  await identity.selectOption({ label: "עובד · דניאל לוי" });
+  await expect(personalShifts).toHaveCount(originalCount);
+
+  await identity.selectOption({ label: "מנהל" });
+  const pendingAssignmentChange = roster.locator(".org-mobile").getByText("פינוי שיבוץ", { exact: true });
+  await expect(pendingAssignmentChange).toBeVisible();
+  await roster.getByRole("button", exact("השבוע הקודם")).click();
+  await expect(pendingAssignmentChange).toHaveCount(0);
+  await roster.getByRole("button", exact("השבוע הבא")).click();
+  await expect(pendingAssignmentChange).toBeVisible();
+  await openReview();
+  for (const name of [/קבלה/, /חניונים/]) {
+    await review.getByRole("checkbox", { name }).uncheck();
+  }
+  await review.locator("section").filter({ has: page.getByRole("checkbox", { name: /אחמ״שים/ }) })
+    .locator("summary").click();
+  await expect(review.getByText("פינוי שיבוץ", { exact: true })).toBeVisible();
+  await expect(review.getByText(/דניאל לוי.*משמרת פנויה/)).toBeVisible();
+  await confirmReview();
+  await expect(review).toBeHidden();
+  await expect(pendingAssignmentChange).toHaveCount(0);
+  await identity.selectOption({ label: "עובד · דניאל לוי" });
+  await expect(personalShifts).toHaveCount(originalCount - 1);
 });

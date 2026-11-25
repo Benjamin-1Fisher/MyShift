@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from "vitest";
-import { demoCommand, loadDemo, DEMO_KEY } from "../src/lib/demo";
+import { demoCommand, loadDemo, loadDemoWorkspace, DEMO_KEY } from "../src/lib/demo";
 import { scheduleNotices } from "../src/lib/schedule-notifications";
 import type { Data } from "../src/lib/domain";
 let storage: Map<string, string>;
@@ -53,16 +53,14 @@ it("ignores welcome messages and draft edits and emits dated publication notices
 it("distinguishes changes to published schedules from draft edits and includes exact change counts", async () => {
   const { week, department_id } = context();
   await demoCommand("/api/change", { action: "publish", week, department_id });
+  const before = loadDemoWorkspace().personal.shift_assignments;
   await demoCommand("/api/change", { action: "reopen", week, department_id });
-  expect(scheduleNotices(loadDemo().notifications)).toHaveLength(2);
-  expect(
-    scheduleNotices(loadDemo().notifications).some(
-      (n) => n.kind === "schedule_withdrawn" && n.details.reason === "reopened",
-    ),
-  ).toBe(true);
+  expect(scheduleNotices(loadDemo().notifications)).toHaveLength(1);
   await change(loadDemo());
-  expect(scheduleNotices(loadDemo().notifications)).toHaveLength(2);
+  expect(loadDemoWorkspace().personal.shift_assignments).toEqual(before);
+  expect(scheduleNotices(loadDemo().notifications)).toHaveLength(1);
   await demoCommand("/api/change", { action: "publish", week, department_id });
+  expect(loadDemoWorkspace().personal.shift_assignments).not.toEqual(before);
   const notice = scheduleNotices(loadDemo().notifications).find(
     (n) => n.kind === "schedule_changed",
   )!;
@@ -83,13 +81,13 @@ it("distinguishes changes to published schedules from draft edits and includes e
   ).toBe(true);
 });
 
-it("republishing without content changes is a normal publication, not a change alert", async () => {
+it("republishing an unchanged visible schedule emits no duplicate notification", async () => {
   const { week, department_id } = context();
   for (const action of ["publish", "reopen", "publish"])
     await demoCommand("/api/change", { action, week, department_id });
   const notices = scheduleNotices(loadDemo().notifications);
   expect(notices.filter((n) => n.kind === "schedule_published")).toHaveLength(
-    2,
+    1,
   );
   expect(notices.filter((n) => n.kind === "schedule_changed")).toHaveLength(0);
 });

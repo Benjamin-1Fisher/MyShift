@@ -1,18 +1,20 @@
 import { test, expect, type Page } from "@playwright/test";
+import type { Data } from "../src/lib/domain";
 import {
   board,
   chooseDepartment,
   clickWeekAction,
+  departmentScheduleButton,
   exact,
-  openMore,
   navigation,
   openMain,
+  shiftWorker,
 } from "./workspace-controls";
 
 async function assertWorkerExcluded(page: Page, worker: string) {
   await page.locator(".shift-main").first().click();
   const dialog = page.getByRole("dialog");
-  await expect(dialog.getByLabel("עובד במשמרת")).not.toContainText(worker);
+  await expect(shiftWorker(dialog)).not.toContainText(worker);
   await dialog.getByRole("button", exact("סגירה")).click();
 }
 test("departments isolate workers, templates, custom overnight shifts and publication on desktop and phone", async ({
@@ -26,7 +28,7 @@ test("departments isolate workers, templates, custom overnight shifts and public
   await chooseDepartment(page, "אחמ״שים", "סיירים");
   await expect(page.locator(".shift")).toHaveCount(14);
   await assertWorkerExcluded(page, "דניאל לוי");
-  const parking = page.getByRole("button", { name: "חניונים", exact: true });
+  const parking = departmentScheduleButton(page, "חניונים");
   await page
     .getByRole("button", { name: "חזרה לכל המחלקות", exact: true })
     .click();
@@ -35,17 +37,14 @@ test("departments isolate workers, templates, custom overnight shifts and public
   await expect(page.locator(".shift")).toHaveCount(0);
   await page.getByRole("button", { name: "הוספת משמרת", exact: true }).click();
   const dialog = page.getByRole("dialog");
-  const shiftDepartment = dialog.getByRole("combobox", exact("מחלקה"));
-  await expect(shiftDepartment).toBeDisabled();
-  await expect(shiftDepartment.locator("option:checked")).toHaveText("חניונים");
+  await expect(dialog.getByText("חניונים", { exact: true })).toBeVisible();
+  await expect(dialog.getByRole("combobox", exact("מחלקה"))).toHaveCount(0);
   await expect(dialog.getByLabel("התחלה", { exact: true })).toHaveValue("");
   await expect(dialog.getByLabel("סיום", { exact: true })).toHaveValue("");
-  await expect(dialog.getByLabel("עובד במשמרת")).not.toContainText("דניאל לוי");
+  await expect(shiftWorker(dialog)).not.toContainText("דניאל לוי");
   await dialog.getByLabel("התחלה", { exact: true }).fill("21:30");
   await dialog.getByLabel("סיום", { exact: true }).fill("04:30");
-  await dialog
-    .getByLabel("עובד במשמרת")
-    .selectOption({ label: "חניונים — עובד לדוגמה 1" });
+  await shiftWorker(dialog).selectOption({ label: "אורי נבון" });
   await dialog.getByRole("button", { name: "שמירה", exact: true }).click();
   await expect(page.locator(".shift")).toHaveCount(1);
   await expect(page.locator(".shift")).toContainText("למחרת");
@@ -63,7 +62,7 @@ test("departments isolate workers, templates, custom overnight shifts and public
     .getByRole("button", { name: "חזרה לכל המחלקות", exact: true })
     .click();
   await page.getByRole("button", { name: "השבוע", exact: true }).click();
-  await page.getByRole("button", { name: "סיירים", exact: true }).click();
+  await departmentScheduleButton(page, "סיירים").click();
   await expect(page.getByText("טיוטה", { exact: true })).toBeVisible();
   await expect(page.locator(".shift")).toHaveCount(14);
   await page.setViewportSize({ width: 390, height: 844 });
@@ -86,6 +85,55 @@ test("departments isolate workers, templates, custom overnight shifts and public
     path: "work/department-desktop.png",
     fullPage: true,
   });
+});
+
+test("phone shift editor picks a day and hours without typing and previews a similar shift without saving", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 780 });
+  await page.goto("/demo?view=department");
+  await expect(page.locator(".shift")).toHaveCount(7);
+  await page.getByRole("button", exact("הוספת משמרת")).click();
+  const editor = page.getByRole("dialog");
+  const days = editor.getByRole("group", exact("יום בשבוע")).getByRole("button");
+  await expect(days).toHaveCount(7);
+  await days.nth(1).click();
+  await expect(days.nth(1)).toHaveAttribute("aria-pressed", "true");
+  const hours = editor.getByRole("group", exact("שעות המשמרת"));
+  const night = hours.getByRole("button", { name: /^לילה/ });
+  const start = editor.getByLabel("התחלה", { exact: true });
+  await night.click();
+  await expect(night).toHaveAttribute("aria-pressed", "true");
+  await expect(start).toBeHidden();
+  await hours.getByRole("button", exact("שעות מותאמות")).click();
+  await expect(night).toBeHidden();
+  await expect(start).toHaveValue("23:00");
+  await start.fill("22:30");
+  await hours.getByRole("button", exact("חזרה לתבניות")).click();
+  await expect(night).toBeVisible();
+  await expect(start).toBeHidden();
+  await expect(hours.getByText("22:30–07:00", { exact: true })).toBeVisible();
+  await hours.getByRole("button", exact("שעות מותאמות")).click();
+  await expect(start).toHaveValue("22:30");
+  expect(
+    await editor.evaluate((element) => element.scrollWidth <= element.clientWidth),
+  ).toBe(true);
+  await editor.getByRole("button", exact("סגירה")).click();
+
+  await page.locator(".shift-main").first().click();
+  const actionsFit = await editor.getByRole("button", exact("שמירה")).evaluate(
+    (button) =>
+      [...button.parentElement!.children].every(
+        (action) => action.scrollWidth <= action.clientWidth,
+      ),
+  );
+  expect(actionsFit).toBe(true);
+  await editor.getByRole("button", exact("יצירת משמרת דומה")).click();
+  await expect(editor).toHaveAccessibleName("יצירת משמרת דומה");
+  await expect(days.nth(1)).toBeFocused();
+  await expect(shiftWorker(editor)).toHaveValue("");
+  await editor.getByRole("button", exact("סגירה")).click();
+  await expect(page.locator(".shift")).toHaveCount(7);
 });
 
 test("managers explicitly configure separate reception hours and day-specific staffing", async ({
@@ -125,10 +173,7 @@ test("managers explicitly configure separate reception hours and day-specific st
     .getByRole("button", { name: "סידור עבודה", exact: true })
     .click();
   await page.getByRole("button", { name: "השבוע הבא", exact: true }).click();
-  await page
-    .getByRole("region", { name: "לוח שבועי לכל המחלקות" })
-    .getByRole("button", { name: "קבלה", exact: true })
-    .click();
+  await departmentScheduleButton(page, "קבלה").click();
   await clickWeekAction(page, "יצירת סידור");
   await expect(page.locator(".shift")).toHaveCount(2);
   await expect(page.locator(".shift-time").first()).toContainText("09:30");
@@ -136,7 +181,7 @@ test("managers explicitly configure separate reception hours and day-specific st
     .getByRole("button", { name: "חזרה לכל המחלקות", exact: true })
     .click();
   await page.getByRole("button", { name: "השבוע", exact: true }).click();
-  await page.getByRole("button", { name: "אחמ״שים", exact: true }).click();
+  await departmentScheduleButton(page, "אחמ״שים").click();
   await expect(page.locator(".shift")).toHaveCount(7);
   await expect(page.locator(".shift-time").first()).toContainText("07:00");
 });
@@ -157,7 +202,7 @@ test("organization board shows all departments across the week, flags gaps and r
   await expect(matrix.getByRole("rowheader")).toHaveCount(4);
   for (const department of ["קבלה", "חניונים"]) {
     const row = matrix.getByRole("row").filter({
-      has: page.getByRole("button", { name: department, exact: true }),
+      has: departmentScheduleButton(page, department),
     });
     await expect(row.getByRole("listitem")).toHaveCount(14);
   }
@@ -182,14 +227,14 @@ test("organization board shows all departments across the week, flags gaps and r
   await days.getByRole("button", { name: /^שבת/ }).click();
   await expect(board.getByRole("heading", { name: /^שבת/ })).toBeVisible();
   await expect(
-    board.getByRole("button", { name: "סיירים", exact: true }),
+    departmentScheduleButton(board, "סיירים"),
   ).toBeVisible();
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBe(true);
-  await board.getByRole("button", { name: "סיירים", exact: true }).click();
+  await departmentScheduleButton(board, "סיירים").click();
   await expect(page.getByRole("button", exact("מחלקה · סיירים"))).toBeVisible();
 
   await page
@@ -210,7 +255,7 @@ test("a manager can fill the flagged shift and see the weekly board update", asy
   await board.getByRole("button", { name: /^שיבוץ .*משמרת פנויה/ }).click();
   const form = page.getByRole("dialog", { name: /עריכת משמרת|שיבוץ עובד/ });
   const workers = form.getByRole("combobox", {
-    name: "עובד במשמרת",
+    name: "שיבוץ עובד",
     exact: true,
   });
   await expect(workers).toBeFocused();
@@ -234,7 +279,7 @@ test("a manager can fill the flagged shift and see the weekly board update", asy
   await workers.selectOption(id!);
   await form.getByRole("button", exact("שמירה")).click();
   await expect(openShifts).toContainText("0");
-  await board.getByRole("button", exact("סיירים")).click();
+  await departmentScheduleButton(board, "סיירים").click();
   await page.getByRole("button", exact("חזרה לכל המחלקות")).click();
 
   const storedSchedule = () =>
@@ -279,7 +324,6 @@ test("printing from the phone view includes all seven days and ignores the open-
   await board.getByRole("button", { name: /פנויות לשיבוץ/ }).click();
   const sheet = board.locator(".org-print-sheet");
   await expect(sheet).toBeHidden();
-  await openMore(board);
   await board.getByRole("button", { name: "הדפסה / PDF", exact: true }).click();
   await expect(page.locator("html")).toHaveAttribute(
     "data-print-requested",
@@ -294,6 +338,146 @@ test("printing from the phone view includes all seven days and ignores the open-
   await expect(sheet.getByText("נתוני דוגמה בלבד")).toBeVisible();
   await expect(page.locator(".sidebar")).toBeHidden();
   await expect(page.locator(".org-mobile")).toBeHidden();
+});
+
+test("weekly planning defaults to every department, rejects stale drafts, and preserves assigned shifts", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 472, height: 904 });
+  await page.clock.setFixedTime(new Date("2026-11-25T12:00:00Z"));
+  await page.goto("/demo");
+  const roster = board(page);
+  const plan = roster.getByRole("button", exact("תכנון שבועי"));
+  const department = roster.getByRole(
+    "button",
+    exact("סינון לפי מחלקה · כל המחלקות"),
+  );
+  await expect(plan).toBeVisible();
+  for (const width of [472, 320]) {
+    await page.setViewportSize({ width, height: 904 });
+    expect((await plan.boundingBox())!.y).toBe(
+      (await department.boundingBox())!.y,
+    );
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+  }
+
+  const storageKey = "myshift.demo.v1";
+  const snapshot = () =>
+    page.evaluate((key) => {
+      const { schedule_versions, shift_assignments } = (
+        JSON.parse(localStorage.getItem(key)!) as { data: Data }
+      ).data;
+      return { schedule_versions, shift_assignments };
+    }, storageKey);
+  const before = await snapshot();
+  const target = before.schedule_versions.find(
+    (row) => row.week_start === "2026-11-22" && row.status === "draft",
+  )!;
+  await department.click();
+  await roster
+    .getByRole("group", exact("סינון לפי מחלקה"))
+    .getByRole("button", exact("חניונים"))
+    .click();
+  const dialog = page.getByRole("dialog", exact("תכנון שבועי"));
+  const save = dialog.getByRole("button", exact("אישור ושמירה כטיוטה"));
+  const scope = dialog.getByRole(
+    "button",
+    exact("היקף תכנון · כל המחלקות שבניהולי"),
+  );
+  const allDepartments = new Set(
+    before.schedule_versions
+      .filter((row) => row.week_start === "2026-11-22")
+      .map((row) => row.department_id),
+  );
+  await plan.click();
+  await expect(scope).toBeVisible();
+  await expect(dialog.getByText("משמרות חדשות").first()).toBeVisible();
+  await expect(dialog.getByText(/מילוי משמרת פנויה/).first()).toBeVisible();
+  const firstGroup = dialog.locator("details").first();
+  await expect(dialog.locator("details[open]")).toHaveCount(0);
+  await firstGroup.locator("summary").click();
+  await expect(firstGroup.getByText("משמרת חדשה", { exact: true }).first()).toBeVisible();
+  const skipped = dialog.locator("details").filter({ hasText: "שעות טרם הוגדרו" }).first();
+  await expect(skipped.getByText(/יש להגדיר דרישות איוש/)).toBeHidden();
+  await skipped.locator("summary").click();
+  await expect(skipped.getByText(/יש להגדיר דרישות איוש/)).toBeVisible();
+  await expect(save).toBeEnabled();
+  await scope.click();
+  const scopeOptions = dialog.getByRole("group", exact("היקף תכנון"));
+  await expect(scopeOptions.getByRole("textbox")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(scopeOptions).toBeHidden();
+  await expect(scope).toBeFocused();
+  await scope.click();
+  await scopeOptions.getByRole("button", exact("אחמ״שים")).click();
+  await expect(dialog.getByRole("button", exact("היקף תכנון · אחמ״שים"))).toBeVisible();
+  await expect(dialog.locator("details")).toHaveCount(1);
+  await expect(dialog.locator("details[open]")).toHaveCount(0);
+  expect(await snapshot()).toEqual(before);
+  await dialog.getByRole("button", exact("ביטול")).click();
+  await expect(dialog).toBeHidden();
+  expect(await snapshot()).toEqual(before);
+
+  await plan.click();
+  await expect(scope).toBeVisible();
+  await page.evaluate(
+    ({ key, versionId }) => {
+      const store = JSON.parse(localStorage.getItem(key)!) as { data: Data };
+      const row = store.data.schedule_versions.find(
+        (row) => row.id === versionId,
+      )!;
+      row.revision = Number(row.revision) + 1;
+      localStorage.setItem(key, JSON.stringify(store));
+    },
+    { key: storageKey, versionId: target.id },
+  );
+  const current = await snapshot();
+  await save.click();
+  await expect(dialog.getByRole("alert")).toContainText("הסידור השתנה");
+  expect(await snapshot()).toEqual(current);
+
+  await dialog.getByRole("button", exact("רענון הצעה")).click();
+  await save.click();
+  await expect(dialog).toBeHidden();
+  const after = await snapshot();
+  expect(after.shift_assignments.length).toBeGreaterThan(
+    current.shift_assignments.length,
+  );
+  expect(after.shift_assignments).toEqual(
+    expect.arrayContaining(current.shift_assignments.filter((shift) => shift.employee_id)),
+  );
+  const addedOrFilled = after.shift_assignments.filter((shift) => {
+    const original = current.shift_assignments.find((row) => row.id === shift.id);
+    return !original || (!original.employee_id && shift.employee_id);
+  });
+  const changedDepartments = new Set(addedOrFilled.map((shift) => shift.department_id));
+  expect(changedDepartments.size).toBeGreaterThan(1);
+  expect([...changedDepartments].every((id) => allDepartments.has(id))).toBe(true);
+  expect(
+    after.schedule_versions.find((row) => row.id === target.id),
+  ).toMatchObject({
+    status: "draft",
+    revision: Number(target.revision) + 2,
+  });
+  expect(after.schedule_versions.filter((row) => row.week_start !== "2026-11-22")).toEqual(
+    before.schedule_versions.filter((row) => row.week_start !== "2026-11-22"),
+  );
+  await page.getByRole("button", exact("ביטול הפעולה האחרונה")).click();
+  await expect.poll(async () =>
+    (await snapshot()).shift_assignments.slice().sort((a, b) => a.id.localeCompare(b.id)),
+  ).toEqual(current.shift_assignments.slice().sort((a, b) => a.id.localeCompare(b.id)));
+
+  await page.goto("/demo?week=2026-12-27");
+  await expect(plan).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
 });
 
 test("synthetic payroll reaches the selected employee, and birthdays stay in the manager view", async ({
@@ -346,7 +530,7 @@ test("mobile weekly navigation stays compact and keeps context with 13 long depa
   await page.setViewportSize({ width: 472, height: 904 });
   await page.goto("/demo");
   const roster = board(page);
-  await expect(roster.getByRole("button", exact("אחמ״שים"))).toBeVisible();
+  await expect(departmentScheduleButton(roster, "אחמ״שים")).toBeVisible();
 
   const names = Array.from(
     { length: 9 },
@@ -439,8 +623,35 @@ test("mobile weekly navigation stays compact and keeps context with 13 long depa
   const date = await days
     .getByRole("button", { name: /^ראשון/ })
     .getAttribute("aria-label");
-  await departments.getByRole("button", exact(names[8])).click();
-  await page.getByRole("button", exact("חזרה לכל המחלקות")).click();
+  await departmentScheduleButton(departments, names[8]).click();
+  const back = page.getByRole("button", exact("חזרה לכל המחלקות"));
+  const picker = page.getByRole("button", exact(`מחלקה · ${names[8]}`));
+  const addShift = page.getByRole("button", exact("הוספת משמרת"));
+  for (const width of [320, 472]) {
+    await page.setViewportSize({ width, height: 904 });
+    const [backBox, pickerBox, addBox] = await Promise.all(
+      [back, picker, addShift].map((button) => button.boundingBox()),
+    );
+    expect(backBox!.y).toBeCloseTo(pickerBox!.y);
+    expect(addBox!.y).toBeCloseTo(pickerBox!.y);
+    expect(addBox!.x).toBeGreaterThanOrEqual(0);
+    expect(pickerBox!.width).toBeGreaterThan(90);
+    const weekNavigation = page.getByRole("group", exact("ניווט בין שבועות"));
+    const [navBox, dateBox] = await Promise.all(
+      [weekNavigation, weekNavigation.locator("strong")].map((item) => item.boundingBox()),
+    );
+    expect(navBox!.width).toBeGreaterThan(240);
+    expect(navBox!.x + navBox!.width / 2).toBeCloseTo(dateBox!.x + dateBox!.width / 2);
+    await picker.click();
+    const options = page.getByRole("group", exact("מחלקה"));
+    await expect(options.getByRole("textbox")).toBeFocused();
+    const panel = (await options.boundingBox())!;
+    expect(panel.x).toBeGreaterThanOrEqual(0);
+    expect(panel.x + panel.width).toBeLessThanOrEqual(width);
+    await page.keyboard.press("Escape");
+    await expect(picker).toBeFocused();
+  }
+  await back.click();
   await expect(
     roster.getByRole("button", { name: /ממתינים לפרסום/ }),
   ).toHaveAttribute("aria-pressed", "true");
@@ -461,7 +672,7 @@ test("mobile weekly navigation stays compact and keeps context with 13 long depa
     .getByRole("button", exact("כל המחלקות"))
     .click();
   await roster.getByRole("button", { name: /ממתינים לפרסום/ }).click();
-  const lastDepartment = departments.getByRole("button", exact(names[8]));
+  const lastDepartment = departmentScheduleButton(departments, names[8]);
   await lastDepartment.scrollIntoViewIfNeeded();
   const boardScroll = await page.evaluate(() => scrollY);
   expect(boardScroll).toBeGreaterThan(0);
@@ -509,15 +720,19 @@ test("stale shift edits stay open and can reload the latest assignment", async (
   await edit.focus();
   await page.keyboard.press("Enter");
   const form = page.getByRole("dialog");
-  const worker = form.getByLabel("עובד במשמרת");
+  const worker = shiftWorker(form);
   await expect(worker).toBeFocused();
+  await expect(worker).toHaveAccessibleName("החלפת עובד");
+  await expect(form.getByText("משובץ כרגע")).toBeVisible();
   await worker.selectOption({ label: "נועה כהן" });
+  await expect(form.getByRole("status")).toContainText("דניאל לוי");
+  await expect(form.getByRole("status")).toContainText("נועה כהן");
 
   const second = await context.newPage();
   await second.goto("/demo?view=department");
   await second.locator(".shift-main").first().click();
   const other = second.getByRole("dialog");
-  await other.getByLabel("עובד במשמרת").selectOption("");
+  await shiftWorker(other).selectOption("");
   await other.getByRole("button", exact("שמירה")).click();
   await expect(other).toBeHidden();
   await expect(second.locator(".shift").first()).toContainText("משמרת פנויה");
@@ -530,4 +745,43 @@ test("stale shift edits stay open and can reload the latest assignment", async (
   await page.keyboard.press("Escape");
   await expect(form).toBeHidden();
   await expect(card).toContainText("משמרת פנויה");
+});
+
+test("weekly board explains active filters and marks days with staffing issues", async ({ page }) => {
+  await page.clock.setFixedTime(new Date("2026-11-22T09:00:00Z"));
+  await page.setViewportSize({ width: 320, height: 768 });
+  await page.goto("/demo");
+  const roster = board(page);
+  await expect(departmentScheduleButton(roster, "אחמ״שים")).toBeVisible();
+  await page.evaluate(() => {
+    const key = "myshift.demo.v1";
+    const saved = JSON.parse(localStorage.getItem(key)!);
+    const version = saved.data.schedule_versions.find(
+      (row: { status: string }) => row.status === "draft",
+    );
+    const shift = saved.data.shift_assignments.find(
+      (row: { version_id: string; employee_id: string | null }) =>
+        row.version_id === version.id && row.employee_id,
+    );
+    saved.data.availability.push({
+      id: crypto.randomUUID(),
+      employee_id: shift.employee_id,
+      kind: "unavailable",
+      starts_at: shift.starts_at,
+      ends_at: shift.ends_at,
+    });
+    localStorage.setItem(key, JSON.stringify(saved));
+  });
+  await page.reload();
+  const days = roster.getByRole("group", exact("בחירת יום"));
+  await expect(days.getByRole("button", { name: /^ראשון/ })).toHaveAccessibleDescription(/שיבוץ אחד לבדיקה/);
+  const filters = roster.getByRole("group", exact("סינון משמרות שבועי"));
+  await filters.getByRole("button", { name: /שיבוצים לבדיקה/ }).click();
+  await expect(roster.getByRole("status")).toContainText("משמרות עם בעיית שיבוץ בלבד");
+  await expect(roster.locator(".org-mobile").getByText("העובד אינו זמין בשעות המשמרת", { exact: true })).toBeVisible();
+  await expect(roster.locator(".org-mobile .org-shift")).toHaveCount(1);
+  await filters.getByRole("button", exact("הכול")).click();
+  await expect(roster.getByRole("status")).toHaveCount(0);
+  await expect(roster.locator(".org-mobile .org-shift")).not.toHaveCount(1);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });

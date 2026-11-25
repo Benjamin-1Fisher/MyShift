@@ -4,104 +4,169 @@
 
 .controls {
   display: grid;
-  gap: 10px;
-  margin-block-end: 12px;
-  padding: 12px;
-  border: 1px solid #dfe6f0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 12px;
+  margin-block-end: 10px;
+  padding: 10px;
+  border: 1px solid var(--board-line);
   border-radius: 14px;
   background: #fff;
+  box-shadow: 0 2px 8px #18243d05;
 }
 
 .weekLine,
 .weekControls,
-.filterLine,
-.filters,
+.weekActions,
+.rosterActions,
 .dayHeading {
   display: flex;
   align-items: center;
-  gap: 8px;
-}
-
-.weekLine,
-.filterLine {
-  justify-content: space-between;
+  gap: 7px;
   min-width: 0;
 }
 
 .weekControls {
-  min-width: 0;
+  justify-content: space-between;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid #e6e1f4;
+  border-radius: 11px;
+  background: #f8f6fd;
 }
 
 .weekControls button {
-  min-height: 40px;
-  padding: 4px 9px;
+  flex-shrink: 0;
+  min-height: 38px;
+  min-width: 38px;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+}
+
+.weekControls button:hover {
+  background: #ebe5fa;
 }
 
 .period {
   min-width: 0;
-  padding-inline: 3px;
-  white-space: nowrap;
-  font-size: clamp(0.9rem, 2.8vw, 1.125rem);
+  padding-inline: 4px;
+  text-align: center;
+  font-size: clamp(0.9rem, 3vw, 1.08rem);
   font-variant-numeric: tabular-nums;
 }
 
-.weekControls .currentWeek {
-  color: #5945ab;
-  font-weight: 700;
+.period span {
   white-space: nowrap;
 }
 
-.tools {
-  position: relative;
+.weekActions button {
+  min-height: 44px;
+  padding: 5px 9px;
+  white-space: nowrap;
+}
+
+.weekActions .currentWeek {
+  color: #5945ab;
+  font-weight: 700;
+}
+
+.print svg {
   flex-shrink: 0;
 }
 
-.tools summary {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding-inline: 9px;
-  min-height: 40px;
-  cursor: pointer;
-  list-style: none;
-  border: 1px solid var(--line);
-  border-radius: 9px;
+.rosterActions {
+  justify-content: end;
 }
 
-.tools summary::-webkit-details-marker {
-  display: none;
+.departmentFilter {
+  --department-popover-start: auto;
+  --department-popover-end: 0;
+  width: 148px;
+  min-width: 0;
 }
 
-.tools summary:hover,
-.tools[open] summary {
-  background: #f0edf9;
-}
-
-.tools button {
-  position: absolute;
-  z-index: 16;
-  inset-inline-end: 0;
-  inset-block-start: calc(100% + 6px);
-  box-shadow: 0 8px 24px #18243d22;
-  white-space: nowrap;
+.departmentFilter button[aria-expanded] {
+  width: 100%;
 }
 
 .filters {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: auto repeat(4, minmax(0, 1fr));
+  align-items: center;
+  gap: 5px;
   min-width: 0;
 }
 
 .filters button {
   gap: 5px;
   min-height: 40px;
-  padding: 4px 8px;
-  line-height: 1.08;
+  padding: 4px 7px;
+  line-height: 1.1;
   font-size: 0.9rem;
-  text-align: start;
+  white-space: nowrap;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease;
+}
+
+.filterTitle {
+  color: var(--muted);
+  font-size: 0.875rem;
+  font-weight: 700;
+  padding-inline: 3px;
+}
+
+.filters button:disabled {
+  opacity: 0.65;
+}
+
+.filterStatus {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 5px 8px;
+  border-inline-start: 3px solid #7964cf;
+  border-radius: 5px;
+  color: #514191;
+  background: #f4f0fc;
+  font-size: 0.875rem;
+}
+
+.board :global(.org-day-picker button) {
+  position: relative;
+}
+
+.dayMarker {
+  position: absolute;
+  inset-block-start: 3px;
+  inset-inline-end: 3px;
+  display: grid;
+  place-items: center;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #fff0d7;
+  color: #844f0d;
+  pointer-events: none;
+}
+
+.dayMarker[data-issue="true"] {
+  color: #8a2e47;
+  background: #fbe8ee;
+}
+
+.dayAttention {
+  margin: -2px 0 6px;
+  color: #785123;
+  font-size: 0.875rem;
 }
 
 .filters button strong {
-  padding-inline: 4px;
-  border-radius: 4px;
+  min-inline-size: 1.5em;
+  padding: 2px 4px;
+  border-radius: 5px;
+  text-align: center;
   font-variant-numeric: tabular-nums;
   background: #edf0f7;
 }
@@ -129,11 +194,28 @@
   box-shadow: inset 0 0 0 1px #7360d6;
 }
 
-.departmentFilter {
-  --department-popover-start: auto;
-  --department-popover-end: 0;
-  min-width: 0;
-  max-width: 255px;
+.shortFilterLabel {
+  display: none;
+}
+
+.controls .publication {
+  grid-column: 1 / -1;
+  min-height: 42px;
+  justify-content: flex-start;
+  border-color: #ddd5f6;
+  background: #f5f2fc;
+  color: #4e3b9b;
+  font-weight: 700;
+}
+
+.controls .publication:hover {
+  background: #ece6fa;
+}
+
+.publication span {
+  margin-inline-start: auto;
+  font-weight: 600;
+  font-size: 0.9rem;
 }
 
 .status {
@@ -171,9 +253,19 @@
 }
 
 .board :global(.org-department-button) {
+  flex-wrap: wrap;
   background: #fff;
   border-color: #dfe6f0;
   overflow-wrap: anywhere;
+}
+
+.departmentAction {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: #5844a5;
+  white-space: nowrap;
+  font-size: 0.8125rem;
 }
 
 .board :global(.org-department-button:hover) {
@@ -219,36 +311,18 @@
   font-size: 0.875rem;
 }
 
-@media (max-width: 1110px) {
+@media (min-width: 1370px) {
   .controls {
-    padding: 8px;
-    gap: 8px;
-    margin-block-end: 8px;
-  }
-
-  .filterLine {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    gap: 6px;
+    grid-template-columns: minmax(0, 1fr) auto auto;
   }
 
   .filters {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 5px;
+    grid-column: auto;
+    grid-template-columns: repeat(5, auto);
   }
+}
 
-  .filters button {
-    padding-inline: 4px;
-    min-height: 43px;
-  }
-
-  .departmentFilter {
-    --department-popover-start: 0;
-    --department-popover-end: auto;
-    max-width: min(100%, 240px);
-  }
-
+@media (max-width: 1110px) {
   .board :global(.org-mobile-department) {
     padding: 7px;
   }
@@ -270,32 +344,97 @@
   }
 }
 
-@media (max-width: 390px) {
-  .weekControls,
-  .weekLine {
+@media (max-width: 690px) {
+  .controls {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+    padding: 8px;
+    margin-block-end: 8px;
+  }
+
+  .weekControls {
+    flex: 1 1 auto;
+  }
+
+  .rosterActions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .departmentFilter {
+    --department-popover-start: 0;
+    --department-popover-end: auto;
+    width: 100%;
+  }
+
+  .filterTitle {
+    display: none;
+  }
+
+  .filters {
+    grid-template-columns: minmax(42px, 0.65fr) repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 520px) {
+  .filterLabel {
+    display: none;
+  }
+
+  .shortFilterLabel {
+    display: inline;
+  }
+}
+
+@media (max-width: 420px) {
+  .print span {
+    display: none;
+  }
+
+  .weekActions .print {
+    width: 44px;
+    padding: 0;
+  }
+
+  .filters button {
+    padding-inline: 2px;
+  }
+}
+
+@media (max-width: 360px) {
+  .weekLine,
+  .weekActions {
     gap: 4px;
   }
 
   .weekControls button {
-    padding-inline: 5px;
-    min-width: 31px;
+    min-width: 30px;
   }
 
   .period {
-    padding-inline: 1px;
+    padding-inline: 0;
   }
 
-  .tools summary {
+  .weekActions .currentWeek {
     padding-inline: 5px;
-    gap: 2px;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .dailySchedule {
+    animation: day-in 180ms ease-out both;
+  }
+}
+
+@keyframes day-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
   }
 
-  .tools summary svg {
-    width: 16px;
-  }
-
-  .filters button {
-    font-size: 0.82rem;
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 

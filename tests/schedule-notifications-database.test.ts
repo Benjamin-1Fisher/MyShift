@@ -7,6 +7,8 @@ const manager = "10000000-0000-4000-8000-000000000002";
 const worker = "10000000-0000-4000-8000-000000000003";
 const unrelated = "10000000-0000-4000-8000-000000000004";
 let department: string, role: string, site: string, employee: string;
+let otherDepartment: string, otherRole: string;
+const week = "2026-11-01";
 async function rows<T = Record<string, unknown>>(
   sql: string,
   params: unknown[] = [],
@@ -41,7 +43,7 @@ async function rpc<T = string>(name: string, params: unknown[]) {
   );
 }
 async function schedule(action: string) {
-  return rpc("department_schedule_action", ["2026-11-01", action, department]);
+  return rpc("department_schedule_action", [week, action, department]);
 }
 async function save(version: string, operation: object) {
   const preview = await rpc<{ id: string }>("preview_change", [
@@ -59,6 +61,36 @@ const operation = () => ({
   starts_at: "2026-11-06T21:00:00Z",
   ends_at: "2026-11-07T05:00:00Z",
 });
+type Shift = ReturnType<typeof operation> & { id: string };
+type BatchResult = {
+  department_id: string;
+  version_id: string;
+  revision: number;
+  changes: { before: Shift | null; after: Shift | null }[];
+};
+type PublicationReview = BatchResult & {
+  first_publication: boolean;
+  error: string | null;
+};
+const newDraft = (departmentId: string, operations: object[]) => ({
+  department_id: departmentId,
+  version_id: null,
+  revision: 0,
+  status: null,
+  operations,
+});
+function apply(targets: object[]) {
+  return rpc<BatchResult[]>("apply_weekly_plan", [
+    week,
+    JSON.stringify(targets),
+  ]);
+}
+function review() {
+  return rpc<PublicationReview[]>("review_weekly_publication", [week]);
+}
+function publish(targets: object[]) {
+  return rpc("publish_weekly_schedule", [week, JSON.stringify(targets)]);
+}
 beforeAll(async () => {
   db = new PGlite();
   await db.exec(`create role anon;create role authenticated;create schema auth;
@@ -85,6 +117,11 @@ beforeAll(async () => {
       department,
     ])
   )[0].id;
+  [otherDepartment, otherRole] = (
+    await rows<{ department_id: string; id: string }>(
+      "select r.department_id, r.id from roles r join departments d on d.id=r.department_id where d.name='סיירים'",
+    )
+  ).map((r) => [r.department_id, r.id])[0];
   site = (
     await rows<{ id: string }>(
       "insert into sites(name) values('אתר התראות') returning id",
@@ -100,6 +137,11 @@ beforeAll(async () => {
     employee,
     department,
     role,
+  ]);
+  await db.query("insert into employee_departments values($1,$2,$3)", [
+    employee,
+    otherDepartment,
+    otherRole,
   ]);
   await db.query("insert into manager_departments values($1,$2)", [
     manager,
@@ -150,12 +192,12 @@ it("publishes dated notices to the relevant recipients, keeps draft edits silent
   ).rejects.toThrow(/permission denied/);
 });
 
-it("reports exact published changes and a separate withdrawal while intermediate draft edits stay silent", async () => {
+it("keeps the publication visible while the draft is edited and reports the exact published change", async () => {
   const version = await schedule("create");
   await save(version, operation());
   await schedule("publish");
   await schedule("reopen");
-  expect(await rows("select * from notifications")).toHaveLength(2);
+  expect(await rows("select * from notifications")).toHaveLength(1);
   const shift = (
     await rows<{ id: string }>(
       "select id from shift_assignments where version_id=$1",
@@ -168,7 +210,18 @@ it("reports exact published changes and a separate withdrawal while intermediate
     kind: "update",
     employee_id: null,
   });
-  expect(await rows("select * from notifications")).toHaveLength(2);
+  expect(await rows("select * from notifications")).toHaveLength(1);
+  await asUser(worker);
+  expect(await rpc("read_personal_schedule", [])).toMatchObject({
+    schedule_versions: [{ id: version, status: "published" }],
+    shift_assignments: [{ id: shift.id, employee_id: employee }],
+  });
+  await asUser(unrelated);
+  expect(await rpc("read_personal_schedule", [])).toEqual({
+    schedule_versions: [],
+    shift_assignments: [],
+  });
+  await asUser(admin);
   await schedule("publish");
   expect(
     await rows(
@@ -189,7 +242,12 @@ it("reports exact published changes and a separate withdrawal while intermediate
     await rows(
       "select details->>'reason' reason from notifications where kind='schedule_withdrawn'",
     ),
-  ).toEqual([{ reason: "reopened" }]);
+  ).toEqual([]);
+  await asUser(worker);
+  expect(await rpc("read_personal_schedule", [])).toMatchObject({
+    schedule_versions: [{ id: version, status: "published" }],
+    shift_assignments: [],
+  });
 });
 
 it("allows reopening to fix changed availability but a failed publication creates no false notice", async () => {
@@ -207,7 +265,7 @@ it("allows reopening to fix changed availability but a failed publication create
   ]);
   await schedule("reopen");
   await expect(schedule("publish")).rejects.toThrow(/זמינות הקבועה/);
-  expect(await rows("select * from notifications")).toHaveLength(2);
+  expect(await rows("select * from notifications")).toHaveLength(1);
   expect(
     await rows("select * from notifications where kind='schedule_changed'"),
   ).toHaveLength(0);
@@ -218,7 +276,14 @@ it("archiving an unpublished draft is silent; archiving a published schedule is 
   await rpc("schedule_recover", [draft, "archive", 0, draft, 0]);
   expect(await rows("select * from notifications")).toHaveLength(0);
   const published = await schedule("create");
+  await save(published, operation());
   await schedule("publish");
+  await schedule("reopen");
+  await asUser(worker);
+  expect(await rpc("read_personal_schedule", [])).toMatchObject({
+    shift_assignments: [{ version_id: published }],
+  });
+  await asUser(admin);
   const revision = (
     await rows<{ revision: number }>(
       "select revision from schedule_versions where id=$1",
@@ -237,4 +302,179 @@ it("archiving an unpublished draft is silent; archiving a published schedule is 
       "select details->>'reason' reason from notifications where kind='schedule_withdrawn'",
     ),
   ).toEqual([{ reason: "archived" }]);
+  await rpc("schedule_recover", [
+    published,
+    "restore",
+    revision + 1,
+    null,
+    null,
+  ]);
+  await asUser(worker);
+  expect(await rpc("read_personal_schedule", [])).toEqual({
+    schedule_versions: [],
+    shift_assignments: [],
+  });
+});
+
+it("applies and publishes a batch atomically and scopes its review to managed departments", async () => {
+  const otherShift = {
+    ...operation(),
+    department_id: otherDepartment,
+    role_id: otherRole,
+  };
+  const overlapping = [
+    newDraft(department, [operation()]),
+    newDraft(otherDepartment, [otherShift]),
+  ];
+  await asUser(manager);
+  await expect(apply(overlapping)).rejects.toThrow(/הרשאה למחלקה/);
+  await asUser(admin);
+  await expect(apply(overlapping)).rejects.toThrow(/חפיפה/);
+  expect(await rows("select * from schedule_versions")).toHaveLength(0);
+  expect(await rows("select * from shift_assignments")).toHaveLength(0);
+
+  const saved = await apply([
+    newDraft(department, [operation()]),
+    newDraft(otherDepartment, [
+      {
+        ...otherShift,
+        starts_at: "2026-11-05T08:00:00Z",
+        ends_at: "2026-11-05T16:00:00Z",
+      },
+    ]),
+  ]);
+  expect(saved).toHaveLength(2);
+  expect(saved.map((target) => target.revision)).toEqual([1, 1]);
+  expect(await rows("select * from notifications")).toHaveLength(0);
+  await asUser(manager);
+  expect(await review()).toEqual([
+    expect.objectContaining({
+      department_id: department,
+      first_publication: true,
+      error: null,
+      changes: [
+        {
+          before: null,
+          after: expect.objectContaining({ employee_id: employee }),
+        },
+      ],
+    }),
+  ]);
+  await expect(publish(saved)).rejects.toThrow(/הרשאה למחלקה/);
+  await asUser(worker);
+  expect(await review()).toEqual([]);
+  expect(await rpc("read_personal_schedule", [])).toEqual({
+    schedule_versions: [],
+    shift_assignments: [],
+  });
+  await asUser(admin);
+  await expect(
+    publish([saved[0], { ...saved[1], revision: 0 }]),
+  ).rejects.toThrow(/הסידור השתנה/);
+  expect(await rows("select status from schedule_versions")).toEqual([
+    { status: "draft" },
+    { status: "draft" },
+  ]);
+  expect(await rows("select * from notifications")).toHaveLength(0);
+  await publish(saved);
+  await asUser(worker);
+  expect(await rpc("read_personal_schedule", [])).toMatchObject({
+    schedule_versions: [{ status: "published" }, { status: "published" }],
+    shift_assignments: [{ employee_id: employee }, { employee_id: employee }],
+  });
+});
+
+it("rejects publishing a moved assignment while the old assignment is still visible", async () => {
+  const version = await schedule("create");
+  await save(version, operation());
+  await schedule("publish");
+  const oldShift = await rows<{ id: string }>(
+    "select id from shift_assignments where version_id=$1",
+    [version],
+  );
+  await schedule("reopen");
+  await save(version, { kind: "delete", id: oldShift[0].id });
+  const [added] = await apply([
+    newDraft(otherDepartment, [
+      { ...operation(), department_id: otherDepartment, role_id: otherRole },
+    ]),
+  ]);
+  const reviews = await review();
+  expect(reviews).toHaveLength(2);
+  expect(reviews.map((item) => item.error)).toEqual([null, null]);
+  expect(reviews.find((item) => item.version_id === version)).toMatchObject({
+    first_publication: false,
+    changes: [{ before: { id: oldShift[0].id }, after: null }],
+  });
+  await expect(publish([added])).rejects.toThrow(/עדיין מוצג לעובדים/);
+  await asUser(worker);
+  expect(await rpc("read_personal_schedule", [])).toMatchObject({
+    shift_assignments: [{ id: oldShift[0].id }],
+  });
+  await asUser(admin);
+  await publish(reviews);
+  await asUser(worker);
+  expect(await rpc("read_personal_schedule", [])).toMatchObject({
+    shift_assignments: [{ version_id: added.version_id }],
+  });
+});
+
+it("fills open shifts only and can undo a weekly plan back to the visible publication", async () => {
+  const version = await schedule("create");
+  await save(version, operation());
+  await save(version, {
+    ...operation(),
+    employee_id: null,
+    starts_at: "2026-11-05T08:00:00Z",
+    ends_at: "2026-11-05T16:00:00Z",
+  });
+  await schedule("publish");
+  const assignments = await rows<Shift>(
+    "select * from shift_assignments where version_id=$1 order by starts_at",
+    [version],
+  );
+  const [open, assigned] = assignments;
+  const target = {
+    department_id: department,
+    version_id: version,
+    revision: 3,
+    status: "published",
+  };
+  await expect(
+    apply([{ ...target, operations: [{ ...assigned, kind: "update" }] }]),
+  ).rejects.toThrow(/משמרות פנויות בלבד/);
+  const [changed] = await apply([
+    {
+      ...target,
+      operations: [{ ...open, kind: "update", employee_id: employee }],
+    },
+  ]);
+  expect(changed.revision).toBe(4);
+  expect(await rows("select status from schedule_versions")).toEqual([
+    { status: "draft" },
+  ]);
+  await asUser(worker);
+  expect(await rpc("read_personal_schedule", [])).toMatchObject({
+    shift_assignments: [{ id: assigned.id }],
+  });
+  await asUser(admin);
+  const undo = {
+    ...changed,
+    restore_published: true,
+    operations: [{ ...open, kind: "update" }],
+  };
+  await expect(
+    rpc("undo_weekly_plan", [week, JSON.stringify([{ ...undo, revision: 3 }])]),
+  ).rejects.toThrow(/הסידור השתנה/);
+  await rpc("undo_weekly_plan", [week, JSON.stringify([undo])]);
+  expect(await rows("select status from schedule_versions")).toEqual([
+    { status: "published" },
+  ]);
+  expect(
+    await rows(
+      "select * from shift_assignments where version_id=$1 order by starts_at",
+      [version],
+    ),
+  ).toEqual(assignments);
+  expect(await rows("select * from notifications")).toHaveLength(1);
 });

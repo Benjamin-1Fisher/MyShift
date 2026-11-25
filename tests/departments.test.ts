@@ -57,6 +57,32 @@ it("adds four demo schedules while keeping unverified templates separate", () =>
     ).toThrow(/להגדיר/);
   }
 });
+it("renames only employees that still use their original demo labels", () => {
+  const store = seedDemo();
+  const parking = store.data.departments.find((row) => row.name === "חניונים")!;
+  const parkingEmployees = store.data.employee_departments
+    .filter((row) => row.department_id === parking.id)
+    .map((row) =>
+      store.data.employees.find((worker) => worker.id === row.employee_id)!,
+    );
+  const [originalName, editedName] = parkingEmployees;
+  originalName.name = "חניונים — עובד לדוגמה 1";
+  editedName.name = "שם שערכתי";
+  storage.set(DEMO_KEY, JSON.stringify(store));
+
+  const data = loadDemo();
+  expect(data.employees.find((row) => row.id === originalName.id)?.name).toBe(
+    "אורי נבון",
+  );
+  expect(data.employees.find((row) => row.id === editedName.id)?.name).toBe(
+    "שם שערכתי",
+  );
+  expect(data.shift_assignments).toEqual(store.data.shift_assignments);
+  expect(new Set(data.employees.map((row) => row.name)).size).toBe(
+    data.employees.length,
+  );
+});
+
 it("splits legacy mixed schedules without dropping shifts, employees, archives or user edits", () => {
   const store = seedDemo();
   const first = store.data.schedule_versions[0],

@@ -1,5 +1,12 @@
-import { useMemo } from "react";
-import { ChevronLeft, ChevronRight, Ellipsis, Printer } from "lucide-react";
+import { useId, useMemo } from "react";
+import {
+  CircleAlert,
+  ChevronLeft,
+  ChevronRight,
+  Dot,
+  Printer,
+  Send,
+} from "lucide-react";
 import {
   addDays,
   localDate,
@@ -9,9 +16,16 @@ import {
   type Row,
 } from "@/lib/domain";
 import { organizationWeek } from "@/lib/organization-week";
-import { canAssign } from "@/lib/planner";
+import { assignmentIssue } from "@/lib/planner";
+import {
+  publicationChangeKind,
+  publicationChangeLabels,
+  type PublicationReview,
+  type ScheduleChange,
+} from "@/lib/weekly-schedule";
 import DepartmentSelect from "./department-select";
-import ShiftCard from "./shift-card";
+import ShiftCard, { shiftClock } from "./shift-card";
+import WeeklyPlan, { type ApplyWeeklyPlan } from "./weekly-plan";
 import styles from "./organization-week.module.css";
 
 const weekdays = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"];
@@ -24,9 +38,24 @@ const statuses: Record<string, string> = {
   "": "טרם נוצר סידור",
 };
 const filters = [
-  { key: "open", label: "פנויות לשיבוץ" },
-  { key: "conflicts", label: "שיבוצים לבדיקה" },
-  { key: "unpublished", label: "ממתינים לפרסום" },
+  {
+    key: "open",
+    label: "פנויות לשיבוץ",
+    short: "פנויות",
+    shown: "משמרות פנויות בלבד",
+  },
+  {
+    key: "conflicts",
+    label: "שיבוצים לבדיקה",
+    short: "לבדיקה",
+    shown: "משמרות עם בעיית שיבוץ בלבד",
+  },
+  {
+    key: "unpublished",
+    label: "ממתינים לפרסום",
+    short: "טיוטות",
+    shown: "טיוטות מחלקה בלבד",
+  },
 ] as const;
 type BoardFilter = "all" | (typeof filters)[number]["key"];
 type BoardRow = ReturnType<typeof organizationWeek>["rows"][number];
@@ -46,6 +75,9 @@ export default function OrganizationWeek({
   onWeek,
   onDepartment,
   onOpenShift,
+  onApplyPlan,
+  onReviewPublication,
+  publicationReviews,
   demo,
 }: {
   data: Data;
@@ -56,6 +88,9 @@ export default function OrganizationWeek({
   onWeek: (week: string) => void;
   onDepartment: (id: string) => void;
   onOpenShift: (shift: Assignment, isDraft: boolean) => void;
+  onApplyPlan: ApplyWeeklyPlan;
+  onReviewPublication: () => void;
+  publicationReviews: PublicationReview[];
   demo: boolean;
 }) {
   const board = useMemo(
@@ -63,7 +98,10 @@ export default function OrganizationWeek({
     [data, departments, week],
   );
   const { dates } = board;
+  const dayDescriptionId = useId();
+  const draftCount = board.rows.filter((row) => row.status === "draft").length;
   const today = localDate(new Date().toISOString());
+  const currentWeek = sunday();
   const day = dates.includes(view.day)
     ? view.day
     : dates.includes(today)
@@ -87,20 +125,19 @@ export default function OrganizationWeek({
       if (assigned) assigned.push(shift);
       else employeeShifts.set(shift.employee_id, [shift]);
     }
-    const conflicts = new Set<string>();
+    const conflicts = new Map<string, string>();
     for (const row of board.rows)
       for (const shifts of row.days)
-        for (const shift of shifts)
-          if (
-            shift.employee_id &&
-            !canAssign(
-              data,
-              shift,
-              shift.employee_id,
-              employeeShifts.get(shift.employee_id),
-            )
-          )
-            conflicts.add(shift.id);
+        for (const shift of shifts) {
+          if (!shift.employee_id) continue;
+          const issue = assignmentIssue(
+            data,
+            shift,
+            shift.employee_id,
+            employeeShifts.get(shift.employee_id),
+          );
+          if (issue) conflicts.set(shift.id, issue);
+        }
     return conflicts;
   }, [data, board.rows]);
 
@@ -113,6 +150,58 @@ export default function OrganizationWeek({
       roles: index(data.roles),
     };
   }, [data.employees, data.sites, data.roles]);
+
+  const changes = new Map<string, ScheduleChange>();
+  const removals = new Map<string, Assignment[]>();
+  for (const review of publicationReviews) {
+    if (review.first_publication) continue;
+    for (const change of review.changes) {
+      const shift = change.after ?? change.before;
+      if (!shift) continue;
+      changes.set(shift.id, change);
+      if (change.after) continue;
+      const key = shift.department_id + ":" + localDate(shift.starts_at);
+      const items = removals.get(key) ?? [];
+      items.push(shift);
+      removals.set(key, items);
+    }
+  }
+  const removedOn = (row: BoardRow, index: number) =>
+    view.filter === "all" || view.filter === "unpublished"
+      ? (removals.get(row.department.id + ":" + dates[index]) ?? [])
+      : [];
+  const dayAttention = dates.map((_, index) => {
+    const shifts = scopedRows.flatMap((row) => row.days[index]);
+    return {
+      issues: shifts.filter((shift) => conflicts.has(shift.id)).length,
+      open: shifts.filter((shift) => !shift.employee_id).length,
+    };
+  });
+  const attentionLabel = ({ issues, open }: (typeof dayAttention)[number]) =>
+    [
+      issues === 1
+        ? "שיבוץ אחד לבדיקה"
+        : issues
+          ? `${issues} שיבוצים לבדיקה`
+          : "",
+      open === 1 ? "משמרת פנויה אחת" : open ? `${open} משמרות פנויות` : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  function attentionMarker(index: number) {
+    const { issues, open } = dayAttention[index];
+    if (!issues && !open) return null;
+    return (
+      <span
+        className={styles.dayMarker}
+        data-issue={!!issues}
+        title={attentionLabel(dayAttention[index])}
+        aria-hidden="true"
+      >
+        {issues ? <CircleAlert size={11} /> : <Dot size={14} strokeWidth={5} />}
+      </span>
+    );
+  }
 
   const shiftMatches = (shift: Assignment) =>
     view.filter === "open"
@@ -128,19 +217,33 @@ export default function OrganizationWeek({
       if (!shift.employee_id) counts.open++;
       if (conflicts.has(shift.id)) counts.conflicts++;
     }
-    const unpublished = row.status === "draft" && shifts.length > 0;
+    const hasRemoval = dates.some((date) =>
+      removals.has(row.department.id + ":" + date),
+    );
+    const unpublished =
+      row.status === "draft" && (shifts.length > 0 || hasRemoval);
     if (unpublished) counts.unpublished++;
     if (view.filter === "unpublished" && !unpublished) continue;
     const filteredDays = row.days.map((shifts) => shifts.filter(shiftMatches));
-    if (view.filter === "all" || filteredDays.some((shifts) => shifts.length))
+    if (
+      view.filter === "all" ||
+      filteredDays.some((shifts) => shifts.length) ||
+      (view.filter === "unpublished" && hasRemoval)
+    )
       rows.push({ ...row, days: filteredDays });
   }
   const dailyRows =
     view.filter === "all"
       ? rows
-      : rows.filter((row) => row.days[dayIndex].length);
+      : rows.filter(
+          (row) => row.days[dayIndex].length || removedOn(row, dayIndex).length,
+        );
   const nearestDay = dates
-    .filter((_, index) => rows.some((row) => row.days[index].length))
+    .filter((_, index) =>
+      rows.some(
+        (row) => row.days[index].length || removedOn(row, index).length,
+      ),
+    )
     .sort(
       (a, b) =>
         Math.abs(dates.indexOf(a) - dayIndex) -
@@ -152,7 +255,10 @@ export default function OrganizationWeek({
     dateLabel(week) + (year === end.slice(0, 4) ? "" : "." + year);
   const dateRange = (
     <bdi dir="ltr">
-      {startDate}–{dateLabel(end)}.{end.slice(0, 4)}
+      <span>{startDate}</span>–<wbr />
+      <span>
+        {dateLabel(end)}.{end.slice(0, 4)}
+      </span>
     </bdi>
   );
 
@@ -161,8 +267,14 @@ export default function OrganizationWeek({
     if (nextWeek !== week) onWeek(nextWeek);
   }
 
-  function shiftList(row: BoardRow, shifts: Assignment[], printing = false) {
-    if (!shifts.length)
+  function shiftList(
+    row: BoardRow,
+    shifts: Assignment[],
+    index: number,
+    printing = false,
+  ) {
+    const removed = printing ? [] : removedOn(row, index);
+    if (!shifts.length && !removed.length)
       return (
         <span className="org-empty">
           {view.filter !== "all" && !printing ? "—" : "אין משמרות"}
@@ -170,40 +282,89 @@ export default function OrganizationWeek({
       );
     return (
       <ul className="org-shifts">
-        {shifts.map((shift) => (
-          <ShiftCard
-            compact
-            key={shift.id}
-            shift={shift}
-            employeeName={
-              shift.employee_id
-                ? names.employees.get(shift.employee_id) || "עובד משובץ"
-                : undefined
-            }
-            siteName={names.sites.get(shift.site_id) || "אתר לא ידוע"}
-            roleName={names.roles.get(shift.role_id) || "תפקיד לא ידוע"}
-            color={String(row.department.color || "#7360d6")}
-            conflict={conflicts.has(shift.id)}
-            onEdit={
-              !printing && row.status === "draft"
-                ? () => onOpenShift(shift, true)
-                : undefined
-            }
-          />
-        ))}
+        {shifts.concat(removed).map((shift) => {
+          const change = printing ? undefined : changes.get(shift.id);
+          const kind = change ? publicationChangeKind(change) : undefined;
+          const before = change?.before;
+          const after = change?.after;
+          const priorWorker =
+            before?.employee_id &&
+            after &&
+            before.employee_id !== after.employee_id
+              ? names.employees.get(before.employee_id) || "עובד משובץ"
+              : undefined;
+          const priorSchedule =
+            before &&
+            after &&
+            (Date.parse(before.starts_at) !== Date.parse(after.starts_at) ||
+              Date.parse(before.ends_at) !== Date.parse(after.ends_at) ||
+              before.role_id !== after.role_id ||
+              before.site_id !== after.site_id)
+              ? [
+                  dateLabel(localDate(before.starts_at)),
+                  `${shiftClock(before.starts_at)}–${shiftClock(before.ends_at)}`,
+                  names.sites.get(before.site_id),
+                  names.roles.get(before.role_id),
+                ]
+                  .filter(Boolean)
+                  .join(" · ")
+              : undefined;
+          const detail = [priorWorker, priorSchedule]
+            .filter(Boolean)
+            .join(" · ");
+          return (
+            <ShiftCard
+              compact
+              key={shift.id}
+              shift={shift}
+              employeeName={
+                shift.employee_id
+                  ? names.employees.get(shift.employee_id) || "עובד משובץ"
+                  : undefined
+              }
+              siteName={names.sites.get(shift.site_id) || "אתר לא ידוע"}
+              roleName={names.roles.get(shift.role_id) || "תפקיד לא ידוע"}
+              color={String(row.department.color || "#7360d6")}
+              conflict={conflicts.has(shift.id)}
+              conflictReason={!printing ? conflicts.get(shift.id) : undefined}
+              publicationChange={
+                kind
+                  ? {
+                      kind,
+                      label: publicationChangeLabels[kind],
+                      detail: detail
+                        ? `בפרסום הנוכחי: ${detail}`
+                        : kind === "removed"
+                          ? "מופיעה עדיין בפרסום הנוכחי"
+                          : "ממתין לפרסום",
+                    }
+                  : undefined
+              }
+              onEdit={
+                !printing && row.status === "draft" && kind !== "removed"
+                  ? () => onOpenShift(shift, true)
+                  : undefined
+              }
+            />
+          );
+        })}
       </ul>
     );
   }
 
   function departmentButton(department: Row) {
+    const name = String(department.name);
     return (
       <button
         type="button"
         className="org-department-button"
         onClick={() => onDepartment(department.id)}
-        title="פתיחת סידור המחלקה"
+        aria-label={`לסידור המחלקה · ${name}`}
       >
-        {String(department.name)} <ChevronLeft aria-hidden size={15} />
+        <span>{name}</span>
+        <span className={styles.departmentAction}>
+          לסידור המחלקה <ChevronLeft aria-hidden size={14} />
+        </span>
       </button>
     );
   }
@@ -223,9 +384,27 @@ export default function OrganizationWeek({
           <tr>
             <th scope="col">מחלקה</th>
             {dates.map((date, index) => (
-              <th scope="col" key={date} data-today={date === today}>
+              <th
+                scope="col"
+                key={date}
+                data-today={date === today}
+                aria-describedby={
+                  !printing && attentionLabel(dayAttention[index])
+                    ? `${dayDescriptionId}-table-${index}`
+                    : undefined
+                }
+              >
                 <strong>{weekdays[index]}</strong>
                 <small>{dateLabel(date)}</small>
+                {!printing && attentionMarker(index)}
+                {!printing && attentionLabel(dayAttention[index]) && (
+                  <span
+                    className="sr-only"
+                    id={`${dayDescriptionId}-table-${index}`}
+                  >
+                    {attentionLabel(dayAttention[index])}
+                  </span>
+                )}
               </th>
             ))}
           </tr>
@@ -244,7 +423,7 @@ export default function OrganizationWeek({
               {row.days.map((shifts, index) => (
                 <td key={dates[index]}>
                   {row.status ? (
-                    shiftList(row, shifts, printing)
+                    shiftList(row, shifts, index, printing)
                   ) : (
                     <span className="org-empty">—</span>
                   )}
@@ -284,46 +463,76 @@ export default function OrganizationWeek({
             >
               <ChevronLeft aria-hidden size={18} />
             </button>
-            <button
-              type="button"
-              className={styles.currentWeek}
-              onClick={() => changeWeek(sunday())}
-            >
-              השבוע
-            </button>
           </div>
-          {board.rows.length > 0 && (
-            <details className={styles.tools}>
-              <summary>
-                <Ellipsis size={19} aria-hidden /> עוד
-              </summary>
+          <div className={styles.weekActions}>
+            {week !== currentWeek && (
               <button
                 type="button"
-                onClick={(event) => {
-                  event.currentTarget
-                    .closest("details")
-                    ?.removeAttribute("open");
-                  window.print();
-                }}
+                className={styles.currentWeek}
+                onClick={() => changeWeek(currentWeek)}
               >
-                <Printer aria-hidden size={17} /> הדפסה / PDF
+                השבוע
               </button>
-            </details>
-          )}
+            )}
+            {board.rows.length > 0 && (
+              <button
+                type="button"
+                className={styles.print}
+                aria-label="הדפסה / PDF"
+                title="הדפסה / PDF"
+                onClick={() => window.print()}
+              >
+                <Printer aria-hidden size={17} />
+                <span>הדפסה</span>
+              </button>
+            )}
+          </div>
         </div>
         {board.rows.length > 0 && (
-          <div className={styles.filterLine}>
+          <>
+            <div className={styles.rosterActions}>
+              <div className={styles.departmentFilter}>
+                <DepartmentSelect
+                  departments={departments}
+                  value={activeDepartment}
+                  allowAll
+                  label="סינון לפי מחלקה"
+                  onChange={(departmentId) => onView({ ...view, departmentId })}
+                />
+              </div>
+              <WeeklyPlan
+                data={data}
+                departments={departments}
+                week={week}
+                dateRange={dateRange}
+                names={names}
+                onApply={onApplyPlan}
+              />
+            </div>
             <div
               className={styles.filters}
               role="group"
               aria-label="סינון משמרות שבועי"
             >
-              {filters.map(({ key, label }) => (
+              <span className={styles.filterTitle}>הצגה</span>
+              <button
+                type="button"
+                aria-pressed={view.filter === "all"}
+                onClick={() => onView({ ...view, filter: "all" })}
+              >
+                הכול
+              </button>
+              {filters.map(({ key, label, short }) => (
                 <button
                   type="button"
                   key={key}
                   data-filter={key}
                   aria-pressed={view.filter === key}
+                  aria-label={`${counts[key]} ${label}`}
+                  title={
+                    key === "unpublished" ? "מחלקות עם טיוטה לפרסום" : label
+                  }
+                  disabled={!counts[key] && view.filter !== key}
                   onClick={() =>
                     onView({
                       ...view,
@@ -331,20 +540,34 @@ export default function OrganizationWeek({
                     })
                   }
                 >
-                  <strong>{counts[key]}</strong> {label}
+                  <strong>{counts[key]}</strong>
+                  <span className={styles.filterLabel}>{label}</span>
+                  <span className={styles.shortFilterLabel} aria-hidden>
+                    {short}
+                  </span>
                 </button>
               ))}
             </div>
-            <div className={styles.departmentFilter}>
-              <DepartmentSelect
-                departments={departments}
-                value={activeDepartment}
-                allowAll
-                label="סינון לפי מחלקה"
-                onChange={(departmentId) => onView({ ...view, departmentId })}
-              />
-            </div>
-          </div>
+            {view.filter !== "all" && (
+              <p className={styles.filterStatus} role="status">
+                מוצגות {filters.find(({ key }) => key === view.filter)?.shown}
+                {" · "}
+                {counts[view.filter]}{" "}
+                {view.filter === "unpublished" ? "מחלקות" : "בכל השבוע"}
+              </p>
+            )}
+            {draftCount > 0 && (
+              <button
+                type="button"
+                className={styles.publication}
+                onClick={onReviewPublication}
+              >
+                <Send size={16} aria-hidden />
+                סקירה ופרסום
+                <span>{draftCount} טיוטות</span>
+              </button>
+            )}
+          </>
         )}
       </header>
       {board.rows.length > 0 && (
@@ -384,51 +607,72 @@ export default function OrganizationWeek({
                   key={date}
                   aria-pressed={day === date}
                   aria-label={weekdays[index] + " " + dateLabel(date)}
+                  aria-describedby={
+                    attentionLabel(dayAttention[index])
+                      ? `${dayDescriptionId}-day-${index}`
+                      : undefined
+                  }
                   onClick={() => onView({ ...view, day: date })}
                 >
                   {shortDays[index]}
                   <small>{dateLabel(date)}</small>
+                  {attentionMarker(index)}
+                  {attentionLabel(dayAttention[index]) && (
+                    <span
+                      className="sr-only"
+                      id={`${dayDescriptionId}-day-${index}`}
+                    >
+                      {attentionLabel(dayAttention[index])}
+                    </span>
+                  )}
                 </button>
               ))}
             </div>
-            <div className={styles.dayHeading}>
-              <h2>
-                {weekdays[dayIndex]} · {dateLabel(day)}
-              </h2>
-              <span>
-                {dailyRows.reduce(
-                  (sum, row) => sum + row.days[dayIndex].length,
-                  0,
-                )}{" "}
-                משמרות ביום
-              </span>
-            </div>
-            {dailyRows.map((row) => (
-              <section
-                className="org-mobile-department"
-                key={row.department.id}
-              >
-                <header>
-                  {departmentButton(row.department)}
-                  {statusBadge(row.status)}
-                </header>
-                {row.status && shiftList(row, row.days[dayIndex])}
-              </section>
-            ))}
-            {!dailyRows.length && (
-              <div className={styles.empty}>
-                <p>אין תוצאות ביום הזה.</p>
-                {nearestDay && nearestDay !== day && (
-                  <button
-                    type="button"
-                    onClick={() => onView({ ...view, day: nearestDay })}
-                  >
-                    מעבר ליום {weekdays[dates.indexOf(nearestDay)]} ·{" "}
-                    {dateLabel(nearestDay)}
-                  </button>
-                )}
+            <div className={styles.dailySchedule} key={day}>
+              <div className={styles.dayHeading}>
+                <h2>
+                  {weekdays[dayIndex]} · {dateLabel(day)}
+                </h2>
+                <span>
+                  {dailyRows.reduce(
+                    (sum, row) => sum + row.days[dayIndex].length,
+                    0,
+                  )}{" "}
+                  משמרות ביום
+                </span>
               </div>
-            )}
+              {attentionLabel(dayAttention[dayIndex]) && (
+                <p className={styles.dayAttention}>
+                  {attentionLabel(dayAttention[dayIndex])}
+                </p>
+              )}
+              {dailyRows.map((row) => (
+                <section
+                  className="org-mobile-department"
+                  key={row.department.id}
+                >
+                  <header>
+                    {departmentButton(row.department)}
+                    {statusBadge(row.status)}
+                  </header>
+                  {row.status && shiftList(row, row.days[dayIndex], dayIndex)}
+                </section>
+              ))}
+              {!dailyRows.length && (
+                <div className={styles.empty}>
+                  <p>אין תוצאות ביום הזה.</p>
+                  {nearestDay && nearestDay !== day && (
+                    <button
+                      type="button"
+                      onClick={() => onView({ ...view, day: nearestDay })}
+                    >
+                      מעבר ליום {weekdays[dates.indexOf(nearestDay)]} ·{" "}
+                      {dateLabel(nearestDay)}
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
           <p className={styles.weekTotal} aria-live="polite">
             {scopedRows.length} מחלקות · {total} משמרות בשבוע
