@@ -34,7 +34,7 @@ it("distinguishes open assignments, coverage requirements and weeks that have no
   expect(rows[1]).toMatchObject({ total: 14, open: 1, shortage: 1 });
   expect(rows[2]).toMatchObject({
     total: 14,
-    staffed: 14,
+    staffed: 13,
     status: "draft",
     configured: false,
   });

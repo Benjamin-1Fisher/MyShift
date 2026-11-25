@@ -6,7 +6,7 @@ import {
   DEMO_KEY,
   upgradeDemo,
 } from "../src/lib/demo";
-import { canAssign, planWeek } from "../src/lib/planner";
+import { canAssign, planDepartments, planWeek } from "../src/lib/planner";
 import { addDays, type Assignment } from "../src/lib/domain";
 let storage: Map<string, string>;
 beforeEach(() => {
@@ -32,7 +32,7 @@ it("adds four demo schedules while keeping unverified templates separate", () =>
     expect(
       shifts.every(
         (shift) =>
-          shift.employee_id && canAssign(data, shift, shift.employee_id),
+          !shift.employee_id || canAssign(data, shift, shift.employee_id),
       ),
     ).toBe(true);
     expect(
@@ -270,4 +270,47 @@ it("adds missing sample schedules once without overwriting a saved archive or ex
     data.shift_assignments.filter((shift) => shift.department_id === parking),
   ).toHaveLength(14);
   expect(loadDemo()).toEqual(data);
+});
+
+it("fills every seeded vacancy and adds missing coverage without replacing assigned workers", async () => {
+  const before = loadDemo();
+  const week = String(
+    before.schedule_versions.find((row) => row.status === "draft")!.week_start,
+  );
+  const draftIds = new Set(
+    before.schedule_versions
+      .filter((row) => row.week_start === week)
+      .map((row) => row.id),
+  );
+  const shifts = before.shift_assignments.filter((row) =>
+    draftIds.has(row.version_id),
+  );
+  expect(shifts.filter((row) => !row.employee_id)).toHaveLength(3);
+  const targets = planDepartments(before, week, before.departments)
+    .map(({ target }) => ({
+      department_id: target.departmentId,
+      version_id: target.versionId ?? null,
+      revision: target.revision,
+      status: target.status,
+      operations: target.operations,
+    }))
+    .filter(({ operations }) => operations.length);
+  expect(
+    targets.some(({ operations }) =>
+      operations.some((op) => op.kind === "create"),
+    ),
+  ).toBe(true);
+  await demoCommand("/api/change", {
+    action: "apply_weekly_plan",
+    week,
+    targets,
+  });
+  const result = loadDemo().shift_assignments.filter((row) =>
+    draftIds.has(row.version_id),
+  );
+  expect(result.length).toBeGreaterThan(shifts.length);
+  expect(result.filter((row) => !row.employee_id)).toHaveLength(0);
+  for (const existing of shifts.filter((row) => row.employee_id)) {
+    expect(result.find((row) => row.id === existing.id)).toEqual(existing);
+  }
 });

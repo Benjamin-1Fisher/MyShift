@@ -170,6 +170,19 @@ export function seedDemo(): Store {
   ];
   const store = upgradeDemo({ schema: 1, data, pending: [] });
   addSampleSchedules(store);
+  // Seed vacancies across more than one department so the first weekly plan
+  // demonstrates filling existing shifts as well as creating missing ones.
+  for (const [department, day] of [
+    [10, 2],
+    [11, 3],
+  ] as const) {
+    const vacancy = data.shift_assignments.find(
+      (shift) =>
+        shift.department_id === fixed(department) &&
+        localDate(shift.starts_at) === addDays(week, day),
+    );
+    if (vacancy) vacancy.employee_id = null;
+  }
   return preparePublications(store);
 }
 

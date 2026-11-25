@@ -208,7 +208,7 @@ test("organization board shows all departments across the week, flags gaps and r
   }
   await expect(matrix.getByText("דניאל לוי").first()).toBeVisible();
   await expect(matrix.getByText(/מתחם מרכז/).first()).toBeVisible();
-  await expect(matrix.getByText("משמרת פנויה", { exact: true })).toBeVisible();
+  await expect(matrix.getByText("משמרת פנויה", { exact: true })).toHaveCount(3);
   expect(
     await matrix.evaluate(
       (el) =>
@@ -252,7 +252,11 @@ test("a manager can fill the flagged shift and see the weekly board update", asy
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/demo?view=organization");
   const board = page.getByRole("region", { name: "לוח שבועי לכל המחלקות" });
-  await board.getByRole("button", { name: /^שיבוץ .*משמרת פנויה/ }).click();
+  const patrol = board
+    .getByRole("row")
+    .filter({ has: departmentScheduleButton(page, "סיירים") });
+  const vacancy = patrol.getByRole("button", { name: /^שיבוץ .*משמרת פנויה/ });
+  await vacancy.click();
   const form = page.getByRole("dialog", { name: /עריכת משמרת|שיבוץ עובד/ });
   const workers = form.getByRole("combobox", {
     name: "שיבוץ עובד",
@@ -269,16 +273,14 @@ test("a manager can fill the flagged shift and see the weekly board update", asy
   await form.getByRole("button", { name: "שמירה", exact: true }).click();
   await expect(form).toHaveCount(0);
   const openShifts = board.getByRole("button", { name: /פנויות לשיבוץ/ });
-  await expect(openShifts).toContainText("0");
-  await expect(
-    board.getByRole("button", { name: /^שיבוץ .*משמרת פנויה/ }),
-  ).toHaveCount(0);
+  await expect(openShifts).toContainText("2");
+  await expect(vacancy).toHaveCount(0);
   await page.getByRole("button", exact("ביטול הפעולה האחרונה")).click();
-  await expect(openShifts).toContainText("1");
-  await board.getByRole("button", { name: /^שיבוץ .*משמרת פנויה/ }).click();
+  await expect(openShifts).toContainText("3");
+  await vacancy.click();
   await workers.selectOption(id!);
   await form.getByRole("button", exact("שמירה")).click();
-  await expect(openShifts).toContainText("0");
+  await expect(openShifts).toContainText("2");
   await departmentScheduleButton(board, "סיירים").click();
   await page.getByRole("button", exact("חזרה לכל המחלקות")).click();
 
@@ -307,7 +309,7 @@ test("a manager can fill the flagged shift and see the weekly board update", asy
   await recovery.click();
   await navigated;
   await expect(page).toHaveURL(recoveryUrl);
-  await expect(openShifts).toContainText("0");
+  await expect(openShifts).toContainText("2");
   expect(await storedSchedule()).toBe(beforeRecovery);
 });
 
@@ -334,7 +336,7 @@ test("printing from the phone view includes all seven days and ignores the open-
   await expect(sheet.getByRole("columnheader")).toHaveCount(8);
   await expect(sheet.getByRole("rowheader")).toHaveCount(4);
   await expect(sheet.getByText("דניאל לוי").first()).toBeVisible();
-  await expect(sheet.getByText("משמרת פנויה", { exact: true })).toBeVisible();
+  await expect(sheet.getByText("משמרת פנויה", { exact: true })).toHaveCount(3);
   await expect(sheet.getByText("נתוני דוגמה בלבד")).toBeVisible();
   await expect(page.locator(".sidebar")).toBeHidden();
   await expect(page.locator(".org-mobile")).toBeHidden();
@@ -400,11 +402,16 @@ test("weekly planning defaults to every department, rejects stale drafts, and pr
   const firstGroup = dialog.locator("details").first();
   await expect(dialog.locator("details[open]")).toHaveCount(0);
   await firstGroup.locator("summary").click();
-  await expect(firstGroup.getByText("משמרת חדשה", { exact: true }).first()).toBeVisible();
-  const skipped = dialog.locator("details").filter({ hasText: "שעות טרם הוגדרו" }).first();
-  await expect(skipped.getByText(/יש להגדיר דרישות איוש/)).toBeHidden();
-  await skipped.locator("summary").click();
-  await expect(skipped.getByText(/יש להגדיר דרישות איוש/)).toBeVisible();
+  await expect(
+    firstGroup.getByText("משמרת חדשה", { exact: true }).first(),
+  ).toBeVisible();
+  const parkingProposal = dialog
+    .locator("details")
+    .filter({ hasText: "חניונים" });
+  await parkingProposal.locator("summary").click();
+  await expect(
+    parkingProposal.getByText("מילוי משמרת פנויה", { exact: true }),
+  ).toBeVisible();
   await expect(save).toBeEnabled();
   await scope.click();
   const scopeOptions = dialog.getByRole("group", exact("היקף תכנון"));
@@ -444,6 +451,8 @@ test("weekly planning defaults to every department, rejects stale drafts, and pr
   await save.click();
   await expect(dialog).toBeHidden();
   const after = await snapshot();
+  expect(current.shift_assignments.filter((shift) => !shift.employee_id)).toHaveLength(3);
+  expect(after.shift_assignments.filter((shift) => !shift.employee_id)).toHaveLength(0);
   expect(after.shift_assignments.length).toBeGreaterThan(
     current.shift_assignments.length,
   );
