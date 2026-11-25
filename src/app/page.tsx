@@ -3,11 +3,12 @@ import {
   ArrowUpLeft,
   CalendarDays,
   Check,
-  Clock3,
   ShieldCheck,
   Sparkles,
   Users,
 } from "lucide-react";
+import HomeSchedule from "@/components/home-schedule";
+
 export default function Page() {
   return (
     <main className="welcome-page">
@@ -61,62 +62,8 @@ export default function Page() {
             </span>
           </div>
         </div>
-        <div
-          className="welcome-preview"
-          aria-label="תצוגה מקדימה — נתונים לדוגמה"
-        >
-          <div className="preview-top">
-            <div>
-              <span className="eyebrow">תמונת מצב לצוות</span>
-              <h2>השבוע מתחיל מסודר</h2>
-            </div>
-            <span className="sample-label">נתונים לדוגמה</span>
-          </div>
-          <div className="preview-metrics">
-            <div>
-              <Users size={19} />
-              <strong>8</strong>
-              <span>אנשי צוות</span>
-            </div>
-            <div>
-              <CalendarDays size={19} />
-              <strong>21</strong>
-              <span>משמרות בשבוע</span>
-            </div>
-            <div>
-              <Clock3 size={19} />
-              <strong>1</strong>
-              <span>ממתינה לשיבוץ</span>
-            </div>
-          </div>
-          <div className="preview-calendar-title">
-            <h3>סידור העבודה</h3>
-            <span className="badge">טיוטה</span>
-          </div>
-          <div className="preview-week">
-            {["ראשון", "שני", "שלישי"].map((day, i) => (
-              <div key={day}>
-                <span>{day}</span>
-                <article className="preview-shift">
-                  <small dir="ltr">07:00 – 15:00</small>
-                  <strong>{["דניאל לוי", "נועה כהן", "איתי מזרחי"][i]}</strong>
-                  <span>אחמ״ש · מתחם מרכז</span>
-                </article>
-                <article className="preview-shift patrol">
-                  <small dir="ltr">15:00 – 23:00</small>
-                  <strong>{["מאיה ישראלי", "עומר ברק", "שירה רון"][i]}</strong>
-                  <span>סייר · מתחם צפון</span>
-                </article>
-              </div>
-            ))}
-          </div>
-          <div className="preview-bottom">
-            <span className="live-dot" />
-            <span>תכנון, שיבוץ ופרסום — הכול בתמונה אחת</span>
-            <ShieldCheck size={18} />
-          </div>
-        </div>
       </section>
+      <HomeSchedule />
       <section className="welcome-steps" aria-label="מה אפשר לנסות בהדגמה">
         {[
           ["01", "בונים את הצוות", "מוסיפים עובדים ומשייכים לתפקיד ולמחלקה."],

@@ -1,5 +1,14 @@
 import { test, expect } from "@playwright/test";
 import type { Data } from "../src/lib/domain";
+import {
+  clickWeekAction,
+  exact,
+  openMore,
+  navigation,
+  openDepartment,
+  openMain,
+  planning,
+} from "./workspace-controls";
 test("organization: direct save, undo copied shift, publish, archive and restore", async ({
   page,
 }) => {
@@ -22,7 +31,7 @@ test("organization: direct save, undo copied shift, publish, archive and restore
   const form = page.getByRole("dialog");
   await form.getByLabel("שם העובד").fill("עובד בדיקה פיקטיבי");
   await form
-    .getByLabel("מחלקה", { exact: true })
+    .getByRole("combobox", exact("מחלקה"))
     .selectOption({ label: "סיירים" });
   await form.getByLabel("תפקיד / הכשרה").selectOption({ label: "סיירים" });
   await form.getByRole("button", { name: "שמירה", exact: true }).click();
@@ -30,48 +39,48 @@ test("organization: direct save, undo copied shift, publish, archive and restore
   await expect(
     page.getByRole("row").filter({ hasText: "עובד בדיקה פיקטיבי" }),
   ).toBeVisible();
+  await openDepartment(page, "סיירים");
   // No draft exists: saving first shift creates the draft and previews atomically scoped changes.
   await page.getByRole("button", { name: "הוספת משמרת", exact: true }).click();
   const shift = page.getByRole("dialog");
-  await expect(shift.getByLabel("מחלקה", { exact: true })).toBeDisabled();
-  await expect(
-    shift.getByLabel("מחלקה", { exact: true }).locator("option:checked"),
-  ).toHaveText("סיירים");
+  const shiftDepartment = shift.getByRole("combobox", exact("מחלקה"));
+  await expect(shiftDepartment).toBeDisabled();
+  await expect(shiftDepartment.locator("option:checked")).toHaveText("סיירים");
   await shift
-    .getByLabel("תפקיד", { exact: true })
+    .getByRole("combobox", exact("תפקיד"))
     .selectOption({ label: "סיירים" });
   await shift.getByLabel("התחלה", { exact: true }).fill("23:00");
   await shift.getByLabel("סיום", { exact: true }).fill("07:00");
   await shift
     .getByLabel("עובד במשמרת")
     .selectOption({ label: "עובד בדיקה פיקטיבי" });
-  await shift.getByRole("button", { name: "שמירת משמרת", exact: true }).click();
+  await shift.getByRole("button", { name: "שמירה", exact: true }).click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
   await expect(page.locator(".shift")).toHaveCount(1);
   await expect(page.locator(".shift")).toContainText("למחרת");
   await page.reload();
-  await expect(
-    page.getByRole("heading", { name: "שיבוץ מחלקה", exact: true }),
-  ).toBeVisible();
+  await expect(planning(page)).toBeVisible();
   await expect(page.locator(".shift")).toHaveCount(1);
   await page.locator(".shift-main").click();
+  await openMore(page.getByRole("dialog"));
   await page.getByRole("button", { name: "שכפול משמרת", exact: true }).click();
-  await page.getByRole("button", { name: "שמירת משמרת", exact: true }).click();
+  await page.getByRole("button", { name: "שמירה", exact: true }).click();
   await expect(page.locator(".shift")).toHaveCount(2);
   await page
     .getByRole("button", { name: "ביטול הפעולה האחרונה", exact: true })
     .click();
   await expect(page.locator(".shift")).toHaveCount(1);
-  await page.getByRole("button", { name: "פרסום סידור", exact: true }).click();
+  await clickWeekAction(page, "פרסום סידור");
   await expect(page.getByText("פורסם", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "מחיקת סידור", exact: true }).click();
+  await clickWeekAction(page, "העברה לסל המחזור");
   await page
+    .getByRole("dialog")
     .getByRole("button", { name: "העברה לסל המחזור", exact: true })
     .click();
   await expect(page.locator(".shift")).toHaveCount(0);
   await page.reload();
   await expect(
-    page.getByRole("button", { name: "יצירת סידור חדש", exact: true }),
+    planning(page).getByRole("button", exact("הגדרת שעות")),
   ).toBeVisible();
   await page.getByRole("button", { name: "הוספת משמרת", exact: true }).click();
   await page
@@ -84,17 +93,14 @@ test("organization: direct save, undo copied shift, publish, archive and restore
     .fill("16:00");
   await page
     .getByRole("dialog")
-    .getByRole("button", { name: "שמירת משמרת", exact: true })
+    .getByRole("button", { name: "שמירה", exact: true })
     .click();
   await expect(page.locator(".shift.open")).toHaveCount(1);
-  await page.getByText("סידורים שנמחקו (1)", { exact: true }).click();
-  await page
-    .getByRole("button", { name: "שחזור סידור זה", exact: true })
-    .click();
+  await clickWeekAction(page, "שחזור סידור");
   await page.getByRole("button", { name: "אישור שחזור", exact: true }).click();
   await expect(page.locator(".shift")).toHaveCount(1);
   await expect(page.getByText("טיוטה", { exact: true })).toBeVisible();
-  await page.getByText("ניהול נוסף", { exact: true }).click();
+  await openMain(page, "הגדרות");
   await page.getByRole("button", { name: "יומן פעילות", exact: true }).click();
   await expect(page.locator("details.audit")).not.toHaveCount(0);
   expect(errors).toEqual([]);
@@ -108,14 +114,14 @@ test("organization saves weekly availability atomically and enforces it through 
   await page.getByLabel("סיסמה").fill("test-password-only");
   await page.getByRole("button", { name: "כניסה", exact: true }).click();
   await expect(
-    page.getByRole("button", { name: "עובדים", exact: true }),
+    navigation(page).getByRole("button", exact("צוות")),
   ).toBeVisible();
-  await page.getByRole("button", { name: "עובדים", exact: true }).click();
+  await navigation(page).getByRole("button", exact("צוות")).click();
   await page.getByRole("button", { name: "עובד חדש", exact: true }).click();
   const form = page.getByRole("dialog");
   await form.getByLabel("שם תצוגה", { exact: true }).fill("עובד לילה בשישי");
   await form
-    .getByLabel("מחלקה", { exact: true })
+    .getByRole("combobox", exact("מחלקה"))
     .selectOption({ label: "סיירים" });
   await form.getByLabel("תפקיד / הכשרה").selectOption({ label: "סיירים" });
   await form
@@ -127,7 +133,7 @@ test("organization saves weekly availability atomically and enforces it through 
   await form.getByRole("button", { name: "שמירה", exact: true }).click();
   await expect(form).toHaveCount(0);
   await page.reload();
-  await page.getByRole("button", { name: "עובדים", exact: true }).click();
+  await navigation(page).getByRole("button", exact("צוות")).click();
   await expect(
     page.getByRole("row").filter({ hasText: "עובד לילה בשישי" }),
   ).toContainText("שישי: לילה");
@@ -241,7 +247,7 @@ test("organization records and cancels sickness and the server enforces the bloc
   await page.getByLabel("סיסמה").fill("test-password-only");
   await page.getByRole("button", { name: "כניסה", exact: true }).click();
   await expect(
-    page.getByRole("button", { name: "עובדים", exact: true }),
+    navigation(page).getByRole("button", exact("צוות")),
   ).toBeVisible();
   const { data }: { data: Data } = await (
     await page.request.get("/api/data")

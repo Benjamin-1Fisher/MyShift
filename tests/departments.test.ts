@@ -16,7 +16,7 @@ beforeEach(() => {
     setItem: (k: string, v: string) => storage.set(k, v),
   });
 });
-it("adds four dynamic departments without inventing unknown hours", () => {
+it("adds four demo schedules while keeping unverified templates separate", () => {
   const data = seedDemo().data;
   expect(data.departments.map((d) => d.name)).toEqual([
     "אחמ״שים",
@@ -25,6 +25,16 @@ it("adds four dynamic departments without inventing unknown hours", () => {
     "חניונים",
   ]);
   for (const dep of data.departments.slice(2)) {
+    const shifts = data.shift_assignments.filter(
+      (a) => a.department_id === dep.id,
+    );
+    expect(shifts).toHaveLength(14);
+    expect(
+      shifts.every(
+        (shift) =>
+          shift.employee_id && canAssign(data, shift, shift.employee_id),
+      ),
+    ).toBe(true);
     expect(
       data.employees.filter((e) =>
         data.employee_departments.some(
@@ -203,4 +213,35 @@ it("does not let a past availability submission block future weeks", () => {
     ends_at: new Date(Date.parse(base.ends_at) + 14 * 86400000).toISOString(),
   };
   expect(canAssign(data, next, base.employee_id!)).toBe(true);
+});
+
+it("adds missing sample schedules once without overwriting a saved archive or existing shifts", () => {
+  const store = seedDemo();
+  delete store.sampleSchedulesAdded;
+  const reception = store.data.departments[2].id;
+  const parking = store.data.departments[3].id;
+  const archived = store.data.schedule_versions.find(
+    (v) => v.department_id === reception,
+  )!;
+  archived.status = "archived";
+  store.data.schedule_versions = store.data.schedule_versions.filter(
+    (v) => v.department_id !== parking,
+  );
+  store.data.shift_assignments = store.data.shift_assignments.filter(
+    (shift) => shift.department_id !== parking,
+  );
+  store.data.shift_assignments[0].employee_id = null;
+  storage.set(DEMO_KEY, JSON.stringify(store));
+
+  const data = loadDemo();
+  expect(
+    data.schedule_versions.filter((v) => v.department_id === reception),
+  ).toEqual([archived]);
+  expect(
+    data.shift_assignments.slice(0, store.data.shift_assignments.length),
+  ).toEqual(store.data.shift_assignments);
+  expect(
+    data.shift_assignments.filter((shift) => shift.department_id === parking),
+  ).toHaveLength(14);
+  expect(loadDemo()).toEqual(data);
 });

@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { navigation, openMain } from "./workspace-controls";
 
 test("visitor landing offers demo while setup is separate", async ({
   page,
@@ -27,14 +28,48 @@ test("landing and demo fit phone and navigation works", async ({ page }) => {
     ),
   ).toBe(true);
   await page.getByRole("link", { name: "כניסה להדגמה" }).click();
+  const controls = page.getByRole("region", { name: "מצב הדגמה" });
+  const view = controls.getByRole("combobox", { name: "תצוגת הדגמה" });
+  const organization = controls.getByRole("link", { name: "למערכת הארגונית" });
+  await expect(view).toBeVisible();
+  await expect(controls.getByText("דמו", { exact: true })).toBeVisible();
   await expect(
-    page.getByText("מצב הדגמה — נתונים לדוגמה", { exact: true }),
-  ).toBeVisible();
+    page.getByRole("main").getByRole("region", { name: "מצב הדגמה" }),
+  ).toHaveCount(0);
+  const topbar = page.locator(".topbar");
+  await expect(organization).toHaveAttribute("href", "/app");
+  await expect(controls).not.toContainText("נתונים לדוגמה");
+  await expect(controls).not.toContainText("השינויים נשמרים");
+  for (const width of [320, 472, 1440]) {
+    await page.setViewportSize({ width, height: 904 });
+    const viewBox = (await view.boundingBox())!;
+    const linkBox = (await organization.boundingBox())!;
+    expect(Math.abs(viewBox.y - linkBox.y)).toBeLessThan(2);
+    expect(viewBox.y + viewBox.height).toBeLessThan(
+      (await topbar.boundingBox())!.y,
+    );
+    expect(viewBox.x + viewBox.width).toBeLessThanOrEqual(width);
+    expect(linkBox.x).toBeGreaterThanOrEqual(0);
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.evaluate(() => window.scrollTo(0, 250));
+  await expect
+    .poll(async () => {
+      const box = await controls.boundingBox();
+      return box ? box.y + box.height : Infinity;
+    })
+    .toBeLessThanOrEqual(0);
+  await page.evaluate(() => window.scrollTo(0, 0));
   await expect(
     page.getByRole("region", { name: "לוח שבועי לכל המחלקות" }),
   ).toBeVisible();
   await page.getByRole("button", { name: "תפריט", exact: true }).click();
-  await page.getByRole("button", { name: "עובדים", exact: true }).click();
+  await expect(navigation(page).getByRole("button")).toHaveText([
+    "סידור עבודה",
+    "צוות",
+    "הגדרות",
+  ]);
+  await openMain(page, "צוות");
   await expect(
     page.getByRole("row").filter({ hasText: "דניאל לוי" }),
   ).toBeVisible();
