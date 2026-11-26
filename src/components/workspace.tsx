@@ -7,6 +7,7 @@ import OrganizationWeek, { type BoardView } from "./organization-week";
 import DepartmentSelect from "./department-select";
 import ShiftCard from "./shift-card";
 import DemoTeamDesk from "./demo-team-desk";
+import EmployeePayroll from "./employee-payroll";
 import DemoReset from "./demo-reset";
 import { DEMO_KEY, demoResetToken } from "@/lib/demo-storage";
 import ScheduleSettings from "./schedule-settings";
@@ -47,6 +48,7 @@ import {
 import { createBrowserClient } from "@supabase/ssr";
 import {
   CalendarDays,
+  FileText,
   Users,
   Building2,
   Bell,
@@ -405,6 +407,8 @@ export default function Workspace({
     scope: ScheduleScope;
     operations: Operation[];
   } | null>(null);
+  const [payrollEmployee, setPayrollEmployee] = useState<Row | null>(null);
+  const payrollTrigger = useRef<HTMLElement | null>(null);
   const [archivePrompt, setArchivePrompt] = useState(false);
   const [restorePrompt, setRestorePrompt] = useState<string | null>(null);
   const [editor, setEditor] = useState<ShiftDialog | null>(null),
@@ -1485,6 +1489,7 @@ export default function Workspace({
           aria-label="תצוגת הדגמה"
           value={demoEmployee}
           onChange={(e) => {
+            setPayrollEmployee(null);
             setDemoEmployee(e.target.value);
             if (page === "team-desk") setPage("team-desk");
             else if (e.target.value) setPage("schedule");
@@ -2573,6 +2578,18 @@ export default function Workspace({
                         )}
                       </td>
                       <td>
+                        {demo && (isAdmin || e.id === personalEmployeeId) && (
+                          <button
+                            type="button"
+                            aria-label={`שכר ותלושים: ${String(e.name)}`}
+                            onClick={(event) => {
+                              payrollTrigger.current = event.currentTarget;
+                              setPayrollEmployee(e);
+                            }}
+                          >
+                            <FileText size={15} aria-hidden /> {isAdmin ? "שכר ותלושים" : "התלושים שלי"}
+                          </button>
+                        )}
                         {!isAdmin && mayManageAbsence(e) && (
                           <div className="row">
                             <button onClick={() => openAvailability(e)}>
@@ -3199,6 +3216,18 @@ export default function Workspace({
               );
             }}
           />
+        </Modal>
+      )}
+      {payrollEmployee && demo && (isAdmin || payrollEmployee.id === personalEmployeeId) && (
+        <Modal
+          title={`שכר ותלושים: ${String(payrollEmployee.name)}`}
+          close={() => setPayrollEmployee(null)}
+          restoreFocus={() => {
+            payrollTrigger.current?.focus();
+            return !!payrollTrigger.current?.isConnected;
+          }}
+        >
+          <EmployeePayroll key={payrollEmployee.id} id={payrollEmployee.id} active={!!payrollEmployee.active} manager={isAdmin} demo={demo} />
         </Modal>
       )}
       {entity && (

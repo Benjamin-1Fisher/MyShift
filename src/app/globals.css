@@ -2948,3 +2948,15 @@ summary {
     display: none !important;
   }
 }
+
+.payroll-desk { display: grid; gap: 1rem; min-width: 0; }
+.modal:has(.payroll-desk) { width: min(46rem, calc(100vw - 1.5rem)); max-height: calc(100dvh - 1.5rem); overflow: auto; }
+.payroll-panel { display: grid; gap: .65rem; padding: 1rem; }
+.payroll-panel :is(h3,p) { margin: 0; }
+.payroll-panel > button { justify-self: start; }
+.payroll-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: .75rem; }
+.payroll-fields label { display: grid; gap: .25rem; min-width: 0; }
+.payroll-fields :is(input,select) { width: 100%; min-width: 0; }
+.payroll-slip { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; padding-block: .5rem; border-top: 1px solid currentColor; }
+.payroll-slip small, .payroll-slip [role=group] { flex-basis: 100%; }
+@media (max-width: 520px) { .payroll-fields { grid-template-columns: 1fr; } }
