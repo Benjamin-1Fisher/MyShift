@@ -794,3 +794,38 @@ test("weekly board explains active filters and marks days with staffing issues",
   await expect(roster.locator(".org-mobile .org-shift")).not.toHaveCount(1);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
+
+test("employee card saves synthetic pay settings and privately delivers one selected month", async ({ page }) => {
+  await page.clock.setFixedTime(new Date("2026-11-24T12:00:00Z"));
+  await page.goto("/demo?department=20000000-0000-4000-8000-000000000002");
+  await openMain(page, "צוות");
+  await chooseDepartment(page, "סיירים", "אחמ״שים");
+  const employeeButton = page.getByRole("button", { name: "שכר ותלושים: דניאל לוי" });
+  await employeeButton.click();
+  const desk = page.getByRole("dialog", { name: "שכר ותלושים: דניאל לוי" });
+  await desk.getByText("אין תלושים להצגה.").waitFor();
+  await desk.getByLabel("תעריף לשעה (₪)").fill("67.25");
+  await desk.getByLabel("אמצעי תשלום").selectOption("check");
+  await desk.getByLabel("תאריך הסכמה לדוגמה").fill("2026-11-01");
+  await desk.getByRole("button", { name: "שמור הגדרות שכר" }).click();
+  await expect(desk.getByText("הגדרות השכר נשמרו.")).toBeVisible();
+  await desk.getByRole("button", { name: "הכן תלוש דוגמה" }).click();
+  await expect(desk.getByText("טיוטה", {exact:true})).toBeVisible();
+  await desk.getByRole("button", { name: "שלח לתיבה האישית" }).click();
+  await desk.getByRole("button", { name: "אשר שליחה" }).click();
+  await expect(desk.getByText("בתיבה האישית, ממתין לאישור")).toBeVisible();
+  await desk.getByRole("button", { name: "סגירה" }).click();
+  const mode=page.getByLabel("תצוגת הדגמה");
+  await mode.selectOption({label:"עובד · נועה כהן"});
+  await openMain(page,"הפרופיל שלי");
+  await page.getByRole("button",{name:"שכר ותלושים: נועה כהן"}).click();
+  const other=page.getByRole("dialog",{name:"שכר ותלושים: נועה כהן"});
+  await expect(other.getByText("אין תלושים להצגה.")).toBeVisible();
+  await other.getByRole("button",{name:"סגירה"}).click();
+  await mode.selectOption({label:"עובד · דניאל לוי"});
+  await openMain(page,"הפרופיל שלי");
+  await employeeButton.click();
+  await expect(desk.getByRole("heading",{name:"הגדרות שכר"})).toHaveCount(0);
+  await desk.getByRole("button",{name:"אישור קבלה"}).click();
+  await expect(desk.getByText("הקבלה אושרה")).toBeVisible();
+});

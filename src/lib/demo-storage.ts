@@ -1,4 +1,5 @@
 export const DEMO_KEY = "myshift.demo.v1";
+export const DEMO_PAYROLL_KEY = "myshift.synthetic-payroll.v1";
 export const DEMO_RECEIPTS_KEY = "myshift.synthetic-team.v1";
 
 export function demoResetToken(raw: string | null): string | undefined {

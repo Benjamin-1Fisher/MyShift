@@ -3,7 +3,7 @@ import { adminSchema } from "./admin-schema";
 import { canAssign } from "./planner";
 import { isWeeklyAvailable } from "./weekly-availability";
 import { absenceInterval, isAbsence } from "./absences";
-import { DEMO_KEY, DEMO_RECEIPTS_KEY } from "./demo-storage";
+import { DEMO_KEY, DEMO_PAYROLL_KEY, DEMO_RECEIPTS_KEY } from "./demo-storage";
 import {
   weeklyScheduleSchema,
   type PersonalSchedule,
@@ -464,6 +464,7 @@ export function resetDemo() {
   fresh.resetToken = uid();
   write(fresh);
   localStorage.removeItem(DEMO_RECEIPTS_KEY);
+  localStorage.removeItem(DEMO_PAYROLL_KEY);
 }
 function read(): Store {
   let raw: string | null;

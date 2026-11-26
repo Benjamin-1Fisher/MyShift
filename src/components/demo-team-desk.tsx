@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Cake, FileText, Send } from "lucide-react";
 import { addDays, localDate, type Row } from "@/lib/domain";
+import { demoRead } from "./employee-payroll";
 import { DEMO_RECEIPTS_KEY } from "@/lib/demo-storage";
 
 const people = [
@@ -37,7 +38,14 @@ function validReceipt(value: unknown): value is Receipt {
 function loadReceipts(): Receipt[] {
   try {
     const saved: unknown = JSON.parse(localStorage.getItem(DEMO_RECEIPTS_KEY) || "[]");
-    return Array.isArray(saved) ? saved.filter(validReceipt) : [];
+    const list = Array.isArray(saved) ? saved.filter(validReceipt) : [];
+    for (const employeeId of fixtures.keys()) {
+      for (const slip of demoRead(employeeId, false).slips) {
+        if (!list.some((r) => r.employeeId === employeeId && r.month === slip.period))
+          list.push({ employeeId, month: slip.period });
+      }
+    }
+    return list;
   } catch {
     return [];
   }
